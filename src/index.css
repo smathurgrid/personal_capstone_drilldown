@@ -1,0 +1,32 @@
+/* index.css — global reset and base */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #060810;
+  color: #e2e8f0;
+  font-family: 'Syne', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+:root {
+  --bg-0:      #060810;
+  --bg-1:      #0d1117;
+  --bg-2:      #131929;
+  --bg-3:      #1a2235;
+  --border:    #1e2d45;
+  --teal:      #00d9c0;
+  --teal-dim:  #00d9c025;
+  --teal-glow: #00d9c060;
+  --red:       #ff2d55;
+  --red-dim:   #ff2d5520;
+  --amber:     #ffaa00;
+  --text-1:    #e2e8f0;
+  --text-2:    #8899aa;
+  --text-3:    #445566;
+  --mono:      'JetBrains Mono', monospace;
+}

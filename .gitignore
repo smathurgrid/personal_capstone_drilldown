@@ -1,0 +1,11 @@
+venv/
+.env
+.env.*
+.DS_Store
+*.log
+*.pyc
+__pycache__/
+dist/
+build/
+coverage/
+node_modules/
