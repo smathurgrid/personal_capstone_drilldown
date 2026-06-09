@@ -65,9 +65,9 @@ You should see: `Uvicorn running on http://0.0.0.0:8000`
 cd semantic-drill-down/frontend
 npm run dev
 ```
-You should see: `Local: http://localhost:5173/`
+You should see: `Local: http://localhost:5174/`
 
-Open http://localhost:5173 in your browser.
+Open http://localhost:5174 in your browser.
 
 ---
 
