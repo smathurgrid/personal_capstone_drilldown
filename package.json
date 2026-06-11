@@ -4,9 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "vite --host 127.0.0.1",
+    "frontend": "vite --host 127.0.0.1",
+    "backend": "python3 -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload",
     "build": "tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

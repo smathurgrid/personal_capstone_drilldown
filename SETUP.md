@@ -1,109 +1,99 @@
-# Semantic Drill Down — Setup Guide
+# Semantic Drill Down Setup
 
-## What you built
-```
-semantic-drill-down/
-├── backend.py          ← FastAPI server (Python)
-├── requirements.txt    ← Python packages
-└── frontend/
-    ├── package.json    ← Node packages
-    ├── vite.config.js  ← Vite bundler config
-    ├── index.html      ← HTML entry point
-    └── src/
-        ├── main.jsx    ← React entry (don't edit this)
-        ├── App.jsx     ← Your entire React app ← EDIT THIS
-        ├── App.css     ← Styles ← EDIT THIS
-        └── index.css   ← Global reset (rarely edit)
-```
-
----
-
-## Step 1 — Install Python backend
+Run all commands from the project root:
 
 ```bash
-cd semantic-drill-down
-pip install -r requirements.txt
+cd /Users/sshah/Documents/personal_capstone_drilldown-1
 ```
 
----
+## 1. Install Dependencies
 
-## Step 2 — Install Node (if you don't have it)
+Python backend:
 
-Download from https://nodejs.org  (choose the LTS version)
-
-Check it works:
 ```bash
-node --version   # should print v18 or higher
-npm --version
+python3 -m pip install -r requirements.txt
 ```
 
----
-
-## Step 3 — Install React dependencies
+React frontend:
 
 ```bash
-cd frontend
 npm install
 ```
 
-This reads `package.json` and downloads React + Vite into a `node_modules/` folder.
-You only need to do this once.
+## 2. Start Ollama
 
----
-
-## Step 4 — Run both servers (two terminal tabs)
-
-**Terminal 1 — Backend:**
-```bash
-cd semantic-drill-down
-uvicorn backend:app --reload --port 8000
-```
-You should see: `Uvicorn running on http://0.0.0.0:8000`
-
-**Terminal 2 — Frontend:**
-```bash
-cd semantic-drill-down/frontend
-npm run dev
-```
-You should see: `Local: http://localhost:5174/`
-
-Open http://localhost:5174 in your browser.
-
----
-
-## Step 5 — Make sure Ollama is running
+In a separate terminal:
 
 ```bash
 ollama serve
 ```
 
-Your models must already be pulled:
+Make sure the configured models exist locally:
+
 ```bash
 ollama pull qwen2.5vl:7b
 ollama pull x/flux2-klein:4b-bf16
 ```
 
----
+The backend reads these values from `.env`:
 
-## How to edit the React app
+```env
+OLLAMA_BASE=http://localhost:11434
+VISION_MODEL=qwen2.5vl:7b
+IMAGE_MODEL=x/flux2-klein:4b-bf16
+MODEL_PROVIDER=ollama
+```
 
-- **Change the API URL:** Edit the `const API = '...'` line at the top of `App.jsx`
-- **Change colors/fonts:** Edit the CSS variables in `index.css` (the `:root` block)
-- **Change the prompt:** Edit the `prompt` string inside `backend.py` → `analyze()`
-- **Change the crop radius:** Edit `fd.append('radius', 80)` in `App.jsx`
+## 3. Run Backend
 
-Changes to `.jsx` and `.css` files hot-reload instantly in the browser.
-Changes to `backend.py` auto-reload because of `--reload` in uvicorn.
+In a new terminal from the project root:
 
----
+```bash
+npm run backend
+```
 
-## React concepts used (quick reference)
+Equivalent direct command:
 
-| Concept | What it does |
-|---|---|
-| `useState(x)` | Stores a value that re-renders the UI when changed |
-| `useRef(null)` | Gets a pointer to a real DOM element (like getElementById) |
-| `useEffect(fn, [])` | Runs code after the component first renders |
-| `FormData` | Sends files + form fields in a fetch() request |
-| `async/await` | Waits for a network request to complete |
-| JSX | HTML-like syntax inside JavaScript — `className` not `class` |
+```bash
+python3 -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Check it:
+
+```bash
+curl http://127.0.0.1:8000/api/health
+```
+
+You want:
+
+```json
+{"status":"ok","ollama":true,"provider":"ollama"}
+```
+
+## 4. Run Frontend
+
+In another terminal from the project root:
+
+```bash
+npm run frontend
+```
+
+Open:
+
+```text
+http://127.0.0.1:5174/
+```
+
+## Common Errors
+
+If backend says `ImportError: attempted relative import beyond top-level package`, you started the wrong app path. Use:
+
+```bash
+python3 -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+If frontend says it cannot find `package.json`, you are probably inside `frontend/`. Run `npm run frontend` from the project root.
+
+If the frontend shows `Backend offline`, make sure the backend is running on port `8000` and `.env` / `frontend/.env` both point to `127.0.0.1:8000`.
+
+If image generation returns `Model returned no image`, Ollama responded but the selected `IMAGE_MODEL` did not return image data from `/api/generate`.

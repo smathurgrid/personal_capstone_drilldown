@@ -1,7 +1,12 @@
 import os
-from dotenv import load_dotenv
 
-load_dotenv()  # loads .env if present
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+if load_dotenv:
+    load_dotenv()  # loads .env if present
 
 class Settings:
     OLLAMA_BASE: str = os.getenv("OLLAMA_BASE", "http://localhost:11434")

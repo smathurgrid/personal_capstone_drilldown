@@ -10,12 +10,22 @@ Configuration via .env:
  OLLAMA_BASE, VISION_MODEL, IMAGE_MODEL, MODEL_PROVIDER (ollama|mock)
 """
 import logging
+import sys
+from pathlib import Path
+
 from fastapi import FastAPI, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from ..config import settings
-from ..services.factory import get_vision_service, get_image_service
+# Allow this module to be started either from the repo root
+# (`uvicorn backend.app.main:app`) or from `backend/` (`uvicorn app.main:app`).
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend.config import settings
+from backend.services.factory import get_vision_service, get_image_service
+import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,9 +48,17 @@ image_service = get_image_service()
 @app.get("/api/health")
 def health():
     """Health check – reports configured models."""
+    ollama_ok = settings.MODEL_PROVIDER == "mock"
+    if settings.MODEL_PROVIDER == "ollama":
+        try:
+            resp = requests.get(f"{settings.OLLAMA_BASE}/api/tags", timeout=2)
+            ollama_ok = resp.ok
+        except requests.RequestException:
+            ollama_ok = False
+
     return {
         "status": "ok",
-        "ollama": True,
+        "ollama": ollama_ok,
         "vision_model": settings.VISION_MODEL,
         "image_model": settings.IMAGE_MODEL,
         "provider": settings.MODEL_PROVIDER,
@@ -100,40 +118,22 @@ async def generate_from_text(request: Request):
     """Create an initial overview image from a text topic."""
     try:
         body = await request.json()
-        topic = body.get("topic", "Generated Topic")
+        topic_value = body.get("topic", "Generated Topic")
+        topic = str(topic_value).strip() or "Generated Topic"
         logger.info("/api/generate-from-text called: topic=%s", topic)
 
-        # 1️⃣ Use vision service to craft a detailed illustration prompt
-        # We need a dummy image to feed the vision service – use a blank image.
-        from PIL import Image
-        import io
-        blank = Image.new("RGB", (512, 512), color=(255, 255, 255))
-        buf = io.BytesIO()
-        blank.save(buf, format="PNG")
-        blank_bytes = buf.getvalue()
-
-        # The vision service expects coordinates; we can pass center.
-        vision_result = await vision_service.analyze(
-            blank_bytes,
-            x=256,
-            y=256,
-            radius=200,  # covers most of the blank image
+        illustration_prompt = (
+            f"A clean educational technical illustration of {topic}. "
+            "Show the important internal structures and layers as a rich visual explainer, "
+            "with cross-section or cutaway details where useful. Use a polished textbook "
+            "illustration style with a muted, natural color palette. Do not include any "
+            "text, labels, titles, annotations, callout lines, numbers, symbols, or lettering."
         )
-        # The vision service returns an image_prompt we can reuse.
-        illustration_prompt = vision_result.get("image_prompt", "")
-        if not illustration_prompt:
-            # fallback: construct a simple prompt
-            illustration_prompt = f"A clean technical illustration of {topic}, no text."
 
-        # 2️⃣ Generate the image with the image service
-        # For text‑to‑image we don't have crops; we reuse the blank image as both crops.
-        blank_b64 = (
-            base64.b64encode(blank_bytes).decode()
-        )  # reuse same blank for local and global
         gen_result = await image_service.generate(
             prompt=illustration_prompt,
-            local_crop_b64=blank_b64,
-            global_b64=blank_b64,
+            local_crop_b64=None,
+            global_b64=None,
         )
         return {
             "image_b64": gen_result["image_b64"],

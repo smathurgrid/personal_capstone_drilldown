@@ -13,7 +13,7 @@ import {
   WandSparkles
 } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
 type HealthState = "checking" | "online" | "offline";
 type Phase = "idle" | "generating-initial" | "analyzing" | "generating";
@@ -37,14 +37,6 @@ interface GeneratedFromTextResponse {
   image_prompt: string;
 }
 
-// Label position on image (normalized 0-1 coordinates)
-interface LabelPosition {
-  id: string;
-  label: string;
-  x: number; // 0-1
-  y: number; // 0-1
-}
-
 function b64ToDataUrl(b64: string) {
   return `data:image/png;base64,${b64}`;
 }
@@ -61,15 +53,6 @@ async function readFileUrl(file: File) {
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(new Error("Could not read selected image."));
     reader.readAsDataURL(file);
-  });
-}
-
-async function getImageDimensions(dataUrl: string) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    img.onerror = () => reject(new Error("Could not read image dimensions."));
-    img.src = dataUrl;
   });
 }
 
@@ -114,34 +97,6 @@ function extractLabelsFromAnalysis(analysis: string): Array<{id: string; label: 
   return uniqueLabels.slice(0, 8);
 }
 
-// Generate label positions distributed around the image
-function generateLabelPositions(labelCount: number, imageWidth: number, imageHeight: number): Array<{x: number; y: number}> {
-  const positions: Array<{x: number; y: number}> = [];
-  
-  if (labelCount === 0) return positions;
-  
-  // Distribute labels in a circle within the inner 60% of the image
-  const radius = 0.3; // 30% of min dimension
-  const centerX = 0.5;
-  const centerY = 0.5;
-  
-  for (let i = 0; i < labelCount; i++) {
-    const angle = (i / labelCount) * 2 * Math.PI;
-    // Add some variation to avoid perfect symmetry
-    const angleOffset = (Math.sin(i * 0.7) * 0.2) + (Math.cos(i * 1.3) * 0.1);
-    const x = centerX + (radius + angleOffset * 0.1) * Math.cos(angle);
-    const y = centerY + (radius + angleOffset * 0.1) * Math.sin(angle);
-    
-    // Ensure points stay within bounds (0.1 to 0.9)
-    const clampedX = Math.max(0.1, Math.min(0.9, x));
-    const clampedY = Math.max(0.1, Math.min(0.9, y));
-    
-    positions.push({ x: clampedX, y: clampedY });
-  }
-  
-  return positions;
-}
-
 export default function App() {
   const imageRef = useRef<HTMLImageElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -150,8 +105,6 @@ export default function App() {
   const [topic, setTopic] = useState("A cutaway explainer of how a city subway tunnel works");
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = useState("");
-  // Single display image - what's currently shown in the main viewer
-  const [displayImageUrl, setDisplayImageUrl] = useState("");
   const [point, setPoint] = useState<Point | null>(null);
   const [radius, setRadius] = useState(90);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
@@ -159,7 +112,7 @@ export default function App() {
   const [initialPrompt, setInitialPrompt] = useState("");
   const [error, setError] = useState("");
   const [labels, setLabels] = useState<Array<{id: string; label: string}>>([]);
-  const [labelPositions, setLabelPositions] = useState<Array<{x: number; y: number}>>([]);
+  const [labelPoints, setLabelPoints] = useState<Array<{id: string; x: number; y: number}>>([]);
   const [drilldownLevel, setDrilldownLevel] = useState(0);
   const [drilldownHistory, setDrilldownHistory] = useState<Array<{type: 'upload'|'topic'|'label', data: any}>>([]);
 
@@ -200,26 +153,7 @@ export default function App() {
     setInitialPrompt("");
     setError("");
     setLabels([]);
-    setLabelPositions([]);
-  }
-
-  async function analyzeWholeImageForLabels(file: File, imageUrl: string) {
-    const { width, height } = await getImageDimensions(imageUrl);
-    const body = new FormData();
-    body.append("image", file);
-    body.append("x", String(Math.round(width / 2)));
-    body.append("y", String(Math.round(height / 2)));
-    body.append("radius", String(Math.ceil(Math.max(width, height) / 2)));
-
-    const response = await fetch(`${API_BASE}/api/analyze`, {
-      method: "POST",
-      body
-    });
-    if (!response.ok) throw new Error(await response.text());
-
-    const data = (await response.json()) as AnalysisResponse;
-    setAnalysis(data);
-    setLabels(extractLabelsFromAnalysis(data.analysis));
+    setLabelPoints([]);
   }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -230,52 +164,13 @@ export default function App() {
       const url = await readFileUrl(file);
       setSourceFile(file);
       setSourceUrl(url);
-      setDisplayImageUrl(url); // Show uploaded image in main viewer
       resetDerivedState();
       // Add to drilldown history
       setDrilldownHistory(prev => [...prev, {type: 'upload', data: {name: file.name}}]);
       setDrilldownLevel(0);
-      
-      // #region Automatically analyze the uploaded image to get initial labels
-      setPhase("analyzing");
-      try {
-        await analyzeWholeImageForLabels(file, url);
-        // We'll update label positions after image loads
-      } catch (err) {
-        console.warn("Initial analysis failed:", err);
-      } finally {
-        setPhase("idle");
-      }
-      // #endregion Automatically analyze the uploaded image to get initial labels
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load image.");
     }
-  }
-
-  // Update label positions when image loads or changes
-  useEffect(() => {
-    if (displayImageUrl && imageRef.current) {
-      const img = imageRef.current;
-      if (img.complete) {
-        updateLabelPositions(img.width, img.height);
-      } else {
-        const handleLoad = () => {
-          updateLabelPositions(img.width, img.height);
-          img.removeEventListener('load', handleLoad);
-        };
-        img.addEventListener('load', handleLoad);
-      }
-    }
-  }, [displayImageUrl, labels.length]);
-
-  function updateLabelPositions(width: number, height: number) {
-    if (labels.length === 0) {
-      setLabelPositions([]);
-      return;
-    }
-    
-    const positions = generateLabelPositions(labels.length, width, height);
-    setLabelPositions(positions);
   }
 
   function handleImageClick(event: MouseEvent<HTMLImageElement>) {
@@ -296,7 +191,8 @@ export default function App() {
     setAnalysis(null);
     setGeneratedUrl("");
     setError("");
-    // Don't reset labels here - we want to keep showing them on the image
+    setLabels([]);
+    setLabelPoints([]);
   }
 
   function selectCenterPoint() {
@@ -312,7 +208,8 @@ export default function App() {
     setAnalysis(null);
     setGeneratedUrl("");
     setError("");
-    // Don't reset labels - keep showing them
+    setLabels([]);
+    setLabelPoints([]);
   }
 
   async function generateInitialImage() {
@@ -333,23 +230,12 @@ export default function App() {
       const file = await dataUrlToFile(url, "generated-overview.png");
       setSourceUrl(url);
       setSourceFile(file);
-      setDisplayImageUrl(url); // Show generated image in main viewer
       setInitialPrompt(data.image_prompt);
       setPoint(null);
       setAnalysis(null);
       setGeneratedUrl("");
-      
-      // #region Automatically analyze the generated image for labels
-      setPhase("analyzing");
-      try {
-        await analyzeWholeImageForLabels(file, url);
-        // Label positions will update via useEffect when image loads
-      } catch (err) {
-        console.warn("Post-generation analysis failed:", err);
-      } finally {
-        setPhase("idle");
-      }
-      // #endregion Automatically analyze the generated image for labels
+      setLabels([]);
+      setLabelPoints([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Initial image generation failed.");
     } finally {
@@ -381,7 +267,21 @@ export default function App() {
       // Extract labels from analysis
       const extractedLabels = extractLabelsFromAnalysis(data.analysis);
       setLabels(extractedLabels);
-      // Label positions will update via useEffect
+      
+      // Generate points for labels (distribute them in a circle)
+      if (extractedLabels.length > 0) {
+        const points = extractedLabels.map((_, index) => {
+          // Distribute points in a circle around center
+          const angle = (index / Math.max(1, extractedLabels.length - 1)) * 2 * Math.PI;
+          const radius = 0.25; // 25% of radius
+          return {
+            id: extractedLabels[index].id,
+            x: 0.5 + radius * Math.cos(angle), // Normalized coordinates (0-1)
+            y: 0.5 + radius * Math.sin(angle)
+          };
+        });
+        setLabelPoints(points);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Region analysis failed.");
     } finally {
@@ -406,25 +306,7 @@ export default function App() {
       });
       if (!response.ok) throw new Error(await response.text());
       const data = (await response.json()) as { image_b64: string };
-      const url = b64ToDataUrl(data.image_b64);
-      const file = await dataUrlToFile(url, "drilldown-generated.png");
-      setGeneratedUrl(url);
-      setSourceUrl(url);
-      setSourceFile(file);
-      setDisplayImageUrl(url); // Show generated image in main viewer
-      setPoint(null);
-      
-      // #region Automatically analyze the newly generated image for next-level labels
-      setPhase("analyzing");
-      try {
-        await analyzeWholeImageForLabels(file, url);
-        // Label positions will update via useEffect
-      } catch (err) {
-        console.warn("Post-drill generation analysis failed:", err);
-      } finally {
-        setPhase("idle");
-      }
-      // #endregion Automatically analyze the newly generated image for next-level labels
+      setGeneratedUrl(b64ToDataUrl(data.image_b64));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Image generation failed.");
     } finally {
@@ -432,20 +314,19 @@ export default function App() {
     }
   }
 
-  async function handleLabelClick(event: React.MouseEvent, labelIndex: number) {
+  async function handleLabelClick(event: React.MouseEvent, label: {id: string; label: string}, point: {x: number; y: number}) {
     event.preventDefault();
     event.stopPropagation();
     
-    if (!imageRef.current || busy || labelIndex >= labelPositions.length) return;
+    if (!sourceFile || busy) return;
     
-    // Get the normalized position for this label
-    const pos = labelPositions[labelIndex];
+    // Convert normalized point to image coordinates
     const img = imageRef.current;
-    const rect = img.getBoundingClientRect();
+    if (!img) return;
     
-    // Convert to image coordinates
-    const displayX = pos.x * rect.width;
-    const displayY = pos.y * rect.height;
+    const rect = img.getBoundingClientRect();
+    const displayX = point.x * rect.width;
+    const displayY = point.y * rect.height;
     const scaleX = img.naturalWidth / rect.width;
     const scaleY = img.naturalHeight / rect.height;
     
@@ -460,17 +341,19 @@ export default function App() {
       displayY
     });
     
-    // Clear analysis and generated image (but keep labels and display image)
+    // Clear previous analysis and generated image
     setAnalysis(null);
     setGeneratedUrl("");
     setError("");
+    setLabels([]);
+    setLabelPoints([]);
     
     // Add to drilldown history
-    const label = labels[labelIndex];
     setDrilldownHistory(prev => [...prev, {type: 'label', data: {label: label.label}}]);
     setDrilldownLevel(prev => prev + 1);
     
-    // #region Optionally: automatically analyze and generate for seamless infinite loop
+    // Optionally: automatically analyze and generate for seamless infinite loop
+    // Uncomment the following lines for auto-drilldown:
     /*
     setPhase("analyzing");
     try {
@@ -483,7 +366,6 @@ export default function App() {
       setPhase("idle");
     }
     */
-    // #endregion Optionally: automatically analyze and generate for seamless infinite loop
   }
 
   async function useGeneratedAsSource() {
@@ -491,18 +373,18 @@ export default function App() {
     const file = await dataUrlToFile(generatedUrl, "drilldown-generated.png");
     setSourceFile(file);
     setSourceUrl(generatedUrl);
-    // Keep displayImageUrl as is (it's already showing the generated image)
-    setInitialPrompt("");
+    
+    // Track this as a drilldown step
+    setDrilldownHistory(prev => [...prev, {type: 'topic', data: {prompt: initialPrompt}}]);
+    setDrilldownLevel(prev => prev + 1);
+    
     setPoint(null);
     setAnalysis(null);
     setGeneratedUrl("");
+    setInitialPrompt("");
     setError("");
-    // Keep labels and label positions - they're still relevant to the current image
-    
-    // #region Update drilldown tracking
-    setDrilldownHistory(prev => [...prev, {type: 'topic', data: {prompt: initialPrompt}}]);
-    setDrilldownLevel(prev => prev + 1);
-    // #endregion Update drilldown tracking
+    setLabels([]);
+    setLabelPoints([]);
   }
 
   return (
@@ -583,7 +465,7 @@ export default function App() {
           <div className="stage-header">
             <div>
               <p>Source Viewer</p>
-              <h1>Click on labels to drill down, or select a region to analyze</h1>
+              <h1>Upload, select a region, generate the next image.</h1>
             </div>
             {point && (
               <code>
@@ -593,115 +475,22 @@ export default function App() {
           </div>
 
           <div className="viewer-card">
-            {displayImageUrl ? (
-              <div className="image-wrap" style={{ position: 'relative' }}>
-                <img 
-                  ref={imageRef} 
-                  src={displayImageUrl} 
-                  alt="Current image for drill-down analysis" 
-                  onClick={handleImageClick}
-                  style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
-                />
+            {sourceUrl ? (
+              <div className="image-wrap">
+                <img ref={imageRef} src={sourceUrl} alt="Source for drill-down analysis" onClick={handleImageClick} />
                 {point && (
                   <span
                     className="selection-ring"
-                    style={{ 
-                      left: `${point.displayX}px`, 
-                      top: `${point.displayY}px`, 
-                      position: 'absolute',
-                      pointerEvents: 'none'
-                    }}
+                    style={{ left: `${point.displayX}px`, top: `${point.displayY}px` }}
                     aria-hidden="true"
                   />
                 )}
-                {/* Label markers */}
-                {labels.map((label, index) => {
-                  const pos = labelPositions[index];
-                  if (!pos) return null;
-                  
-                  return (
-                    <div 
-                      key={label.id}
-                      className="label-marker"
-                      onClick={(e) => handleLabelClick(e, index)}
-                      style={{
-                        position: 'absolute',
-                        left: `${pos.x * 100}%`,
-                        top: `${pos.y * 100}%`,
-                        transform: 'translate(-50%, -50%)',
-                        width: '12px',
-                        height: '12px',
-                        backgroundColor: '#ff6b35',
-                        borderRadius: '50%',
-                        border: '2px solid rgba(255,255,255,0.8)',
-                        boxShadow: '0 0 0 2px rgba(255,107,53,0.3), 0 2px 4px rgba(0,0,0,0.2)',
-                        cursor: 'pointer',
-                        zIndex: 10
-                      }}
-                      title={`Click to drill down into ${label.label}`}
-                    >
-                      <div className="label-tooltip" style={{
-                        position: 'absolute',
-                        left: '50%',
-                        bottom: '120%',
-                        transform: 'translateX(-50%)',
-                        background: 'rgba(0,0,0,0.8)',
-                        color: 'white',
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '11px',
-                        whiteSpace: 'nowrap',
-                        pointerEvents: 'none',
-                        opacity: 0,
-                        transition: 'opacity 0.2s'
-                      }}>
-                        {label.label}
-                      </div>
-                    </div>
-                  );
-                })}
-                
-                {/* Show tooltip on hover */}
-                <div style={{ 
-                  position: 'absolute', 
-                  top: 0, 
-                  left: 0, 
-                  width: '100%', 
-                  height: '100%', 
-                  pointerEvents: 'none' 
-                }}>
-                  {labels.map((label, index) => {
-                    const pos = labelPositions[index];
-                    if (!pos) return null;
-                    
-                    return (
-                      <div 
-                        key={label.id}
-                        onMouseEnter={(e) => {
-                          const tooltip = e.currentTarget.querySelector('.label-tooltip');
-                          if (tooltip instanceof HTMLElement) tooltip.style.opacity = '1';
-                        }}
-                        onMouseLeave={(e) => {
-                          const tooltip = e.currentTarget.querySelector('.label-tooltip');
-                          if (tooltip instanceof HTMLElement) tooltip.style.opacity = '0';
-                        }}
-                        style={{
-                          position: 'absolute',
-                          left: `${pos.x * 100}%`,
-                          top: `${pos.y * 100}%`,
-                          width: '1px',
-                          height: '1px'
-                        }}
-                      />
-                    );
-                  })}
-                </div>
               </div>
             ) : (
               <div className="empty-state">
                 <ImagePlus size={44} />
                 <h2>No image loaded</h2>
-                <p>Upload an image or generate one from a topic to start the drill-down exploration.</p>
+                <p>Upload an image or generate one from a topic to start the backend workflow.</p>
               </div>
             )}
           </div>
@@ -752,32 +541,27 @@ export default function App() {
             </div>
           )}
 
-          {/* Labels Section - shows extracted labels as list */}
+          {/* Labels Section */}
           {labels.length > 0 && (
             <article className="result-card">
               <h3>Detected Components</h3>
               <div className="labels-container">
                 {labels.map((label, index) => {
-                  const pos = labelPositions[index];
+                  const point = labelPoints[index];
                   return (
                     <div 
                       key={label.id} 
                       className="label-item"
-                      onClick={(e) => handleLabelClick(e, index)}
+                      onClick={(e) => handleLabelClick(e, label, point)}
                       title={`Click to drill down into ${label.label}`}
                     >
                       <span className="label-dot" style={{ backgroundColor: '#ff6b35' }}></span>
                       <span className="label-text">{label.label}</span>
-                      {pos && (
-                        <span className="label-position" style={{ fontSize: '10px', color: 'rgba(255,255,255,0.6)', marginLeft: '6px' }}>
-                          ({Math.round(pos.x * 100)}%, {Math.round(pos.y * 100)}%)
-                        </span>
-                      )}
                     </div>
                   );
                 })}
               </div>
-              <p className="label-help">Click on a component or its label to drill down into its details</p>
+              <p className="label-help">Click on a component to drill down into its details</p>
             </article>
           )}
 
@@ -789,8 +573,7 @@ export default function App() {
                   <Download size={17} />
                 </a>
               </div>
-              {/* Note: generated image is also shown in main viewer above */}
-              <p className="generation-info">The generated image is also shown in the main viewer above for continued exploration.</p>
+              <img src={generatedUrl} alt="Generated drill-down output" />
               <button className="secondary-button" onClick={useGeneratedAsSource}>
                 Use As New Source
               </button>
@@ -803,7 +586,7 @@ export default function App() {
       <footer className="statusbar">
         <span>API: {API_BASE}</span>
         <span>Flow: upload/text to analyze to generate</span>
-        <span>Labels: Auto-detected from image analysis</span>
+        <span>Labels: Extracted from analysis text</span>
       </footer>
     </div>
   );

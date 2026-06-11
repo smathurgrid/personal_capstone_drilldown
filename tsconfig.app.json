@@ -16,10 +16,10 @@
     "noEmit": true,
     "tsBuildInfoFile": "./node_modules/.cache/tsconfig.app.tsbuildinfo",
     "jsx": "react-jsx",
-    "baseUrl": ".",
+    "baseUrl": "./frontend",
     "paths": {
       "@/*": ["src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["frontend/src"]
 }
