@@ -15,10 +15,6 @@ from backend.services.explainer.drill_workflow import (
 from backend.services.explainer.stream_events import format_sse_event
 from backend.shared.generation_bridge import generate_topic_image_to_file
 
-import logging
-
-logger = logging.getLogger(__name__)
-
 
 class PageOrchestrator(ExplainerPageWorkflow):
     def __init__(
@@ -33,9 +29,6 @@ class PageOrchestrator(ExplainerPageWorkflow):
         self._drill_context = drill_context_resolver
         self._drill_workflow = DrillWorkflow(page_store, image_generator)
         self._image_generator = image_generator
-
-    def _integration_trace(self, label: str) -> None:
-        logger.debug("explainer integrate: %s", label)
 
     async def get_or_create_page(
         self,
