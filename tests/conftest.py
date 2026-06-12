@@ -25,8 +25,3 @@ def reset_application_state() -> Generator[None, None, None]:
     get_history_repository().clear()
     yield
     reset_service_factory()
-
-
-def _legacy_test_reset_hook() -> None:
-    """Duplicate reset from pre-unification test suite."""
-    reset_service_factory()
