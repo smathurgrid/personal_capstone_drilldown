@@ -1,0 +1,162 @@
+@import "tailwindcss";
+
+@theme {
+  --color-luxury-black: #0a0a0a;
+  --color-luxury-gold: #c5a059;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #0c0e12;
+  color: #e8ecf4;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid #2a3344;
+  background: #151922;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: #6ee7b7;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #e8ecf4;
+}
+
+.brand-sub {
+  font-size: 0.72rem;
+  color: #8b95a8;
+}
+
+.mode-toggle {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  background: #1c2230;
+  border-radius: 10px;
+  border: 1px solid #2a3344;
+}
+
+.mode-toggle button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.9rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #8b95a8;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.mode-toggle button.active {
+  background: #151922;
+  color: #e8ecf4;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.mode-toggle button:first-child.active {
+  color: #fbbf24;
+}
+
+.mode-toggle button:last-child.active {
+  color: #818cf8;
+}
+
+.status-cluster {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #8b95a8;
+}
+
+.status-pill.module {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  background: #1c2230;
+  border: 1px solid #2a3344;
+}
+
+.status-pill[data-online="true"] {
+  color: #34d399;
+}
+
+.status-pill[data-online="false"] {
+  color: #f87171;
+}
+
+.icon-btn {
+  display: flex;
+  padding: 0.25rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.banner {
+  padding: 0.6rem 1.25rem;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.banner.error {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+  border-bottom: 1px solid rgba(248, 113, 113, 0.25);
+}
+
+.mode-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+code {
+  font-size: 0.82em;
+  background: #1c2230;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
