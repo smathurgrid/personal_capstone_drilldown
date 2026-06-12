@@ -44,6 +44,39 @@ def crop_norm_region(image_path: str, x: float, y: float, radius_ratio: float = 
         return pil_to_b64(crop)
 
 
+def prepare_drill_surfaces(
+    image_bytes: bytes,
+    x_px: int,
+    y_px: int,
+    radius_px: int = 80,
+) -> tuple[str, str, int, int]:
+    """Draw red reticle on full image and crop local region (pixel coords)."""
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        img = img.convert("RGB")
+        w, h = img.size
+        cx = max(0, min(w - 1, int(x_px)))
+        cy = max(0, min(h - 1, int(y_px)))
+        radius = max(8, int(radius_px))
+
+        marked = img.copy()
+        ring_r = max(15, min(100, w // 50))
+        draw = ImageDraw.Draw(marked)
+        draw.ellipse(
+            [cx - ring_r, cy - ring_r, cx + ring_r, cy + ring_r],
+            outline="red",
+            width=3,
+        )
+        dot_r = 4
+        draw.ellipse([cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r], fill="red")
+
+        x1 = max(0, cx - radius)
+        y1 = max(0, cy - radius)
+        x2 = min(w, cx + radius)
+        y2 = min(h, cy + radius)
+        crop = img.crop((x1, y1, x2, y2))
+        return pil_to_b64(marked), pil_to_b64(crop), w, h
+
+
 def draw_red_ring_b64(image_path: str, x: float, y: float) -> str:
     with Image.open(image_path) as img:
         img = img.convert("RGB").copy()
