@@ -1,11 +1,4 @@
-/** Shared fetch helpers — inline types until @shared/types wiring lands. */
-export type AppMode = "explainer" | "ecommerce";
-
-export interface GlobalHealth {
-  status: string;
-  ecommerce?: Record<string, unknown>;
-  explainer?: Record<string, unknown>;
-}
+import type { AppMode, GlobalHealth } from "@shared/types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
@@ -43,3 +36,4 @@ export async function fetchModuleHealth(mode: AppMode) {
 }
 
 export { API_BASE };
+export type { AppMode, GlobalHealth };
