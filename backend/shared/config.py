@@ -55,6 +55,7 @@ class Settings:
     IMAGE_MODEL: str = os.getenv("IMAGE_MODEL", "x/flux2-klein:4b-bf16")
     VISION_MODEL: str = os.getenv("VISION_MODEL", "qwen2.5vl:7b")
     MODEL_PROVIDER: str = os.getenv("MODEL_PROVIDER", "ollama").lower()
+    AGENT_ORCHESTRATOR_MODEL: str = os.getenv("AGENT_ORCHESTRATOR_MODEL", "llama3.1")
 
     SAM2_PATH: str = os.getenv("SAM2_PATH", "")
     DEFAULT_GROUNDING_MODE: str = os.getenv("DEFAULT_GROUNDING_MODE", "")
