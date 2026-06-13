@@ -4,6 +4,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from backend.agent.orchestrator import run_deterministic_drill, run_pi_agent_drill
+from backend.shared.config import settings
+from backend.shared.llm_client import get_llm_client
 
 router = APIRouter(tags=["agent"])
 
@@ -54,8 +56,11 @@ async def agent_health():
         sdk = "available"
     except ImportError:
         sdk = "missing"
+    llm = get_llm_client()
     return {
         "module": "pi-agent",
         "sdk": sdk,
+        "llm_provider": settings.LLM_PROVIDER,
+        "orchestrator_base_url": llm.openai_compatible_base_url(),
         "tools": ["pick_next_region", "analyze", "generate", "generate_from_text"],
     }

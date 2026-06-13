@@ -6,6 +6,7 @@ import uuid
 
 from backend.agent.tools import build_tool_definitions
 from backend.shared.config import settings
+from backend.shared.llm_client import get_llm_client
 
 SYSTEM_PROMPT = """You automate Semantic Drill Down (infinite recursive image exploration).
 
@@ -19,8 +20,10 @@ Cold start: call generate_from_text(topic, session_id) first to create the paren
 Stop when you have completed the requested number of depths. Report each depth's label and analysis briefly."""
 
 
-async def get_ollama_api_key(provider: str) -> str:
+async def get_llm_api_key(provider: str) -> str:
     del provider
+    if settings.LLM_PROVIDER == "litellm" and settings.LITELLM_PROXY_BASE:
+        return settings.LITELLM_API_KEY or "litellm"
     return "ollama"
 
 
@@ -28,13 +31,14 @@ def create_drill_agent(session_id: str | None = None):
     """Return a configured PiAgent context manager for F7 orchestration."""
     from pi_agent import LocalModelConfig, PiAgent, PiAgentOptions
 
-    orchestrator_model = getattr(settings, "AGENT_ORCHESTRATOR_MODEL", "llama3.1")
+    llm = get_llm_client()
+    orchestrator_model = llm.orchestrator_model_id()
     model = LocalModelConfig(
         id=orchestrator_model,
         name=orchestrator_model,
         api="openai-completions",
         provider="local",
-        base_url=f"{settings.OLLAMA_BASE.rstrip('/')}/v1/",
+        base_url=llm.openai_compatible_base_url(),
     )
     tools = build_tool_definitions()
     sid = session_id or str(uuid.uuid4())
@@ -44,7 +48,7 @@ def create_drill_agent(session_id: str | None = None):
             system_prompt=prompt,
             model=model,
             tools=tools,
-            get_api_key=get_ollama_api_key,
+            get_api_key=get_llm_api_key,
             tool_execution="sequential",
         )
     ), sid
