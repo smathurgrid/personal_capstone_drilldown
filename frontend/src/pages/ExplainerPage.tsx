@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Upload, Wand2 } from "lucide-react";
+import { Loader2, Upload, Wand2, Bot } from "lucide-react";
 import {
   analyzeExplainerPage,
   fetchVisionHealth,
@@ -9,6 +9,7 @@ import {
   type GroundingMode,
   type VisionModelKey,
 } from "../services/explainer-api";
+import { streamAutoDrill } from "../services/agent-api";
 import { getErrorMessage } from "../utils/errors";
 import DiagramCanvas from "./explainer/DiagramCanvas";
 import MetadataPanel from "./explainer/MetadataPanel";
@@ -187,6 +188,55 @@ export default function ExplainerPage() {
     }
   };
 
+  const handleAutoDrill = async () => {
+    if (!currentPage?.imageUrl || currentPage.isStreaming || phase !== "idle") return;
+    setPhase("streaming");
+    setError(null);
+    setStatus("Agent auto-drill…");
+    try {
+      const imgRes = await fetch(currentPage.imageUrl);
+      const blob = await imgRes.blob();
+      const reader = new FileReader();
+      const parentB64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          resolve(dataUrl.split(",")[1] ?? "");
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      const chain: ExplainerPageData[] = [currentPage];
+      await streamAutoDrill(
+        { parent_image_b64: parentB64, max_depth: 3, mode: "deterministic" },
+        (eventType, data) => {
+          if (eventType === "status") {
+            setStatus(`${data.phase} (depth ${data.depth})`);
+          } else if (eventType === "complete_depth" && typeof data.image_b64 === "string") {
+            const depth = data.depth as number;
+            chain.push({
+              id: `agent_depth_${depth}`,
+              imageUrl: `data:image/png;base64,${data.image_b64}`,
+              metadata: {
+                editorial_headline: (data.label as string) ?? `Auto depth ${depth}`,
+              },
+              context: data.label as string,
+            });
+            setPages([...chain]);
+            setCurrentIndex(chain.length - 1);
+          } else if (eventType === "error") {
+            throw new Error((data.message as string) ?? "Auto-drill failed");
+          }
+        }
+      );
+    } catch (err) {
+      setError(getErrorMessage(err, "Auto-drill failed"));
+    } finally {
+      setPhase("idle");
+      setStatus("");
+    }
+  };
+
   const activeGrounding = currentPage?.groundingMode ?? groundingMode;
   const groundingLabel = activeGrounding === "sam2" ? "SAM2 cutout" : "Red marker";
 
@@ -282,15 +332,25 @@ export default function ExplainerPage() {
         )}
 
         {currentPage && !currentPage.isStreaming && (
-          <button
-            type="button"
-            className="explainer-btn"
-            disabled={analyzing || phase !== "idle"}
-            onClick={() => runAnalyze(currentPage)}
-          >
-            {analyzing ? <Loader2 className="spin" size={14} /> : null}
-            Re-scan labels
-          </button>
+          <>
+            <button
+              type="button"
+              className="explainer-btn"
+              disabled={analyzing || phase !== "idle"}
+              onClick={() => runAnalyze(currentPage)}
+            >
+              {analyzing ? <Loader2 className="spin" size={14} /> : null}
+              Re-scan labels
+            </button>
+            <button
+              type="button"
+              className="explainer-btn primary"
+              disabled={phase !== "idle"}
+              onClick={handleAutoDrill}
+            >
+              <Bot size={16} /> Auto drill (F7)
+            </button>
+          </>
         )}
       </aside>
 
