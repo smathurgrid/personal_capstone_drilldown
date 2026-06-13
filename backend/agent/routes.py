@@ -1,0 +1,61 @@
+"""Layer 2 agent routes — auto-drill SSE."""
+
+from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
+
+from backend.agent.orchestrator import run_deterministic_drill, run_pi_agent_drill
+
+router = APIRouter(tags=["agent"])
+
+
+@router.post("/auto-drill")
+async def auto_drill(request: Request):
+    """
+    F7 autonomous drill loop via SSE.
+
+    Body JSON:
+      - parent_image_b64: starting image (required unless topic set)
+      - topic: cold-start topic (F2)
+      - max_depth: drill levels (default 3)
+      - mode: "deterministic" (default) | "pi-agent"
+    """
+    body = await request.json()
+    max_depth = int(body.get("max_depth", 3))
+    mode = body.get("mode", "deterministic")
+    topic = body.get("topic")
+    parent_image_b64 = body.get("parent_image_b64")
+
+    if mode == "pi-agent":
+        stream = run_pi_agent_drill(
+            topic=topic,
+            parent_image_b64=parent_image_b64,
+            max_depth=max_depth,
+        )
+    else:
+        if not parent_image_b64:
+            return StreamingResponse(
+                iter(['event: error\ndata: {"message": "parent_image_b64 required"}\n\n']),
+                media_type="text/event-stream",
+            )
+        stream = run_deterministic_drill(
+            parent_image_b64=parent_image_b64,
+            max_depth=max_depth,
+            session_id=body.get("session_id"),
+        )
+
+    return StreamingResponse(stream, media_type="text/event-stream")
+
+
+@router.get("/health")
+async def agent_health():
+    try:
+        import pi_agent  # noqa: F401
+
+        sdk = "available"
+    except ImportError:
+        sdk = "missing"
+    return {
+        "module": "pi-agent",
+        "sdk": sdk,
+        "tools": ["pick_next_region", "analyze", "generate", "generate_from_text"],
+    }

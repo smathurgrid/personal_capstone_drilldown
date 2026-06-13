@@ -24,8 +24,10 @@ if str(UNIFIED_ROOT) not in sys.path:
 from backend.app.routes import (  # noqa: E402
     ecommerce_router,
     generation_router,
+    tools_router,
     vision_router,
 )
+from backend.agent.routes import router as agent_router
 from backend.shared.config import ensure_data_dirs, settings
 from backend.shared.errors import register_exception_handlers
 
@@ -50,6 +52,8 @@ app.add_middleware(
 app.include_router(ecommerce_router, prefix="/api/ecommerce")
 app.include_router(vision_router, prefix="/api/explainer/vision")
 app.include_router(generation_router, prefix="/api/explainer/generate")
+app.include_router(tools_router, prefix="/api")
+app.include_router(agent_router, prefix="/api/agent")
 
 app.mount("/uploads", StaticFiles(directory=str(settings.UPLOADS_DIR)), name="uploads")
 app.mount("/dataset", StaticFiles(directory=str(settings.DATASET_IMAGES_DIR)), name="dataset")
@@ -77,6 +81,8 @@ async def root():
             "ecommerce": "/api/ecommerce/health",
             "explainer_vision": "/api/explainer/vision/health",
             "explainer_generation": "/api/explainer/generate/health",
+            "layer3_tools": "/api/analyze",
+            "agent": "/api/agent/health",
         },
     }
 
