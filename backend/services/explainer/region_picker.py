@@ -8,11 +8,11 @@ import io
 import json
 import re
 
-import requests
 from PIL import Image
 
 from backend.shared.config import Settings
 from backend.shared.json_extractor import extract_json
+from backend.shared.llm_client import LLMClient
 
 _PICK_PROMPT = """You are guiding an educational semantic drill-down exploration.
 
@@ -33,7 +33,7 @@ class RegionPicker:
     """Uses VLM intelligence to pick the next drill coordinate."""
 
     def __init__(self, app_settings: Settings) -> None:
-        self._ollama_url = app_settings.OLLAMA_BASE.rstrip("/") + "/api"
+        self._llm = LLMClient(app_settings)
         self._vision_model = app_settings.VISION_MODEL
 
     @staticmethod
@@ -47,17 +47,13 @@ class RegionPicker:
             return base64.b64encode(buf.getvalue()).decode("utf-8")
 
     def _run_pick_vlm(self, img_b64: str) -> str:
-        payload = {
-            "model": self._vision_model,
-            "messages": [
-                {"role": "user", "content": _PICK_PROMPT, "images": [img_b64]},
-            ],
-            "stream": False,
-            "options": {"temperature": 0.2},
-        }
-        resp = requests.post(f"{self._ollama_url}/chat", json=payload, timeout=180)
-        resp.raise_for_status()
-        return resp.json().get("message", {}).get("content", "")
+        return self._llm.chat_completion(
+            self._vision_model,
+            _PICK_PROMPT,
+            images=[img_b64],
+            temperature=0.2,
+            timeout=180,
+        )
 
     @staticmethod
     def _normalize_coord(val: float) -> float:

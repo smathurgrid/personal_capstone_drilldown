@@ -7,10 +7,10 @@ import base64
 import io
 import re
 
-import requests
 from PIL import Image
 
 from backend.shared.config import Settings
+from backend.shared.llm_client import LLMClient
 
 _TWO_TASK_PROMPT = """You are an expert technical illustrator analyzing a drill-down selection.
 
@@ -52,7 +52,7 @@ class DrillAnalyzer:
     """3-input VLM drill analysis — global marker, local crop, 2-task prompt."""
 
     def __init__(self, app_settings: Settings) -> None:
-        self._ollama_url = app_settings.OLLAMA_BASE.rstrip("/") + "/api"
+        self._llm = LLMClient(app_settings)
         self._vision_model = app_settings.VISION_MODEL
 
     @staticmethod
@@ -67,21 +67,13 @@ class DrillAnalyzer:
         return base64.b64encode(buf.getvalue()).decode("utf-8")
 
     def _run_dual_image_vlm(self, global_b64: str, local_b64: str) -> str:
-        payload = {
-            "model": self._vision_model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": _TWO_TASK_PROMPT,
-                    "images": [global_b64, local_b64],
-                }
-            ],
-            "stream": False,
-            "options": {"temperature": 0.1},
-        }
-        resp = requests.post(f"{self._ollama_url}/chat", json=payload, timeout=300)
-        resp.raise_for_status()
-        return resp.json().get("message", {}).get("content", "")
+        return self._llm.chat_completion(
+            self._vision_model,
+            _TWO_TASK_PROMPT,
+            images=[global_b64, local_b64],
+            temperature=0.1,
+            timeout=300,
+        )
 
     async def analyze_drill(
         self,
