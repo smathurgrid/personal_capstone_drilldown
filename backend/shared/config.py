@@ -55,6 +55,9 @@ class Settings:
     IMAGE_MODEL: str = os.getenv("IMAGE_MODEL", "x/flux2-klein:4b-bf16")
     VISION_MODEL: str = os.getenv("VISION_MODEL", "qwen2.5vl:7b")
     MODEL_PROVIDER: str = os.getenv("MODEL_PROVIDER", "ollama").lower()
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama").lower()
+    LITELLM_PROXY_BASE: str = os.getenv("LITELLM_PROXY_BASE", "http://localhost:4000")
+    LITELLM_API_KEY: str = os.getenv("LITELLM_API_KEY", "")
     AGENT_ORCHESTRATOR_MODEL: str = os.getenv("AGENT_ORCHESTRATOR_MODEL", "llama3.1")
 
     SAM2_PATH: str = os.getenv("SAM2_PATH", "")
