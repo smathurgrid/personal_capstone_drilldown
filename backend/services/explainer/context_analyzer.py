@@ -1,4 +1,4 @@
-"""Ollama-based explainer vision analysis."""
+"""Vision analysis for explainer — LiteLLM or Ollama."""
 
 import asyncio
 import base64
@@ -6,11 +6,11 @@ import io
 import json
 import traceback
 
-import requests
 from PIL import Image
 
 from backend.shared.config import Settings
 from backend.shared.json_extractor import extract_json
+from backend.shared.llm_client import LLMClient, get_llm_client
 
 
 class ContextAnalyzer:
@@ -40,7 +40,7 @@ class ContextAnalyzer:
     )
 
     def __init__(self, app_settings: Settings) -> None:
-        self._ollama_url = app_settings.OLLAMA_BASE.rstrip("/") + "/api"
+        self._llm = LLMClient(app_settings)
         self._vision_model = app_settings.EXPLAINER_VISION_MODEL
 
     @classmethod
@@ -123,21 +123,14 @@ class ContextAnalyzer:
             return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
     def _run_vision_chat(self, prompt: str, img_b64: str, *, timeout: int = 300) -> str:
-        """Vision via /api/chat with thinking disabled.
-
-        qwen3.5 on /api/generate spends the token budget in `thinking` for image
-        inputs, leaving `response` empty until the HTTP client times out.
-        """
-        payload = {
-            "model": self._vision_model,
-            "messages": [{"role": "user", "content": prompt, "images": [img_b64]}],
-            "stream": False,
-            "think": False,
-            "options": {"temperature": 0.0},
-        }
-        resp = requests.post(f"{self._ollama_url}/chat", json=payload, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json().get("message", {}).get("content", "")
+        return self._llm.chat_completion(
+            self._vision_model,
+            prompt,
+            images=[img_b64],
+            temperature=0.0,
+            timeout=timeout,
+            think=False,
+        )
 
     async def analyze_page(self, image_path: str, model_key: str = "qwen3.5"):
         del model_key  # retained for API compatibility

@@ -31,6 +31,8 @@ def get_generation_module_status() -> dict:
             "image_model": settings.IMAGE_MODEL,
             "vision_model": settings.VISION_MODEL,
             "ollama_base": settings.OLLAMA_BASE,
+            "llm_provider": settings.LLM_PROVIDER,
+            "litellm_proxy": settings.LITELLM_PROXY_BASE if settings.LLM_PROVIDER == "litellm" else None,
         },
     }
 

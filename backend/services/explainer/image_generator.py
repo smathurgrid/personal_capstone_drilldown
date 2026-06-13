@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from backend.core.protocols import ImageGenerator  # noqa: F401 — used in type hints
 from backend.shared.config import settings
+from backend.shared.llm_client import get_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -81,14 +82,13 @@ Respond with ONLY the image generation prompt, nothing else."""
         image_prompt = f"Educational illustration of {topic}"
         result = await image_generator.generate(image_prompt, None, None)
     else:
-        vlm_payload = {
-            "model": settings.VISION_MODEL,
-            "messages": [{"role": "user", "content": prompt_for_vlm}],
-            "stream": False,
-        }
-        r = requests.post(f"{settings.OLLAMA_BASE}/api/chat", json=vlm_payload, timeout=120)
-        r.raise_for_status()
-        image_prompt = r.json()["message"]["content"].strip()
+        llm = get_llm_client()
+        image_prompt = llm.chat_completion(
+            settings.VISION_MODEL,
+            prompt_for_vlm,
+            temperature=0.3,
+            timeout=120,
+        ).strip()
         gen_payload = {
             "model": settings.IMAGE_MODEL,
             "prompt": image_prompt,

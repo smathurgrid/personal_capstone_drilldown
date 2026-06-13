@@ -24,6 +24,8 @@ def get_vision_module_status() -> dict:
             "static_dir_exists": static_ready,
             "vision_model": settings.EXPLAINER_VISION_MODEL,
             "ollama_base": settings.OLLAMA_BASE,
+            "llm_provider": settings.LLM_PROVIDER,
+            "vision_model_layer3": settings.VISION_MODEL,
             "sam2_configured": bool(settings.SAM2_PATH),
             "sam2_available": sam2_available(),
             "default_grounding_mode": default_grounding_mode(),
