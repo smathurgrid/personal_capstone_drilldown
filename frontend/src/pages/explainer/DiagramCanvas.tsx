@@ -82,6 +82,9 @@ export default function DiagramCanvas({
     ? toDisplay(lastClick.x, lastClick.y)
     : null;
 
+  const entryClick = page.click && page.parentId ? page.click : null;
+  const entryDisplay = entryClick ? toDisplay(entryClick.x, entryClick.y) : null;
+
   return (
     <div className="diagram-stage">
       <div className="diagram-canvas-wrap" ref={wrapRef} onClick={handleClick}>
@@ -186,6 +189,14 @@ export default function DiagramCanvas({
               </button>
             );
           })}
+
+        {entryDisplay && !page.isStreaming && (
+          <div
+            className="entry-ring"
+            style={{ left: `${entryDisplay.x}px`, top: `${entryDisplay.y}px` }}
+            title="Entry point from parent layer"
+          />
+        )}
 
         {clickDisplay && !page.isStreaming && (
           <div
