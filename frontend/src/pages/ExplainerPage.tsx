@@ -52,6 +52,7 @@ export default function ExplainerPage() {
   const runAnalyze = useCallback(
     async (page: ExplainerPageData) => {
       if (!page.id || page.isStreaming || page.id.startsWith("streaming_")) return;
+      if (page.parentId || (page.depth ?? 0) > 0 || page.context) return;
       setAnalyzingId(page.id);
       try {
         const result = await analyzeExplainerPage(page.id, visionModel);
@@ -75,7 +76,7 @@ export default function ExplainerPage() {
     setLastClick(null);
     try {
       const data = await uploadExplainerImage(file);
-      setPages([data]);
+      setPages([{ ...data, depth: 0 }]);
       setCurrentIndex(0);
       await runAnalyze(data);
     } catch (err) {
@@ -106,6 +107,7 @@ export default function ExplainerPage() {
             id: data.id as string,
             imageUrl: data.imageUrl as string,
             metadata: (data.metadata as ExplainerPageData["metadata"]) ?? {},
+            depth: 0,
             isStreaming: false,
           };
           setPages([page]);
@@ -157,7 +159,11 @@ export default function ExplainerPage() {
                 imageUrl: data.imageUrl as string,
                 metadata: (data.metadata as ExplainerPageData["metadata"]) ?? {},
                 context: data.context as string,
+                parentId: (data.parentId as string) ?? parentId,
+                click: (data.click as { x: number; y: number }) ?? { x, y },
+                depth: (data.depth as number) ?? currentIndex + 1,
                 groundingMode: (data.groundingMode as string) ?? groundingMode,
+                visionModel: (data.visionModel as string) ?? visionModel,
                 samConfidence: data.samConfidence as number | null | undefined,
                 inputPrompt: data.inputPrompt as string | undefined,
                 rawJson: (data.rawJson as string) ?? next[idx].rawJson,
@@ -165,7 +171,9 @@ export default function ExplainerPage() {
               };
               setPhase("idle");
               setStatus("");
-              runAnalyze(next[idx]);
+              if (!next[idx].parentId && !next[idx].context) {
+                runAnalyze(next[idx]);
+              }
             } else if (eventType === "error") {
               setError((data.message as string) ?? "Drill failed");
               next.pop();
@@ -189,38 +197,38 @@ export default function ExplainerPage() {
   };
 
   const handleAutoDrill = async () => {
-    if (!currentPage?.imageUrl || currentPage.isStreaming || phase !== "idle") return;
+    if (!currentPage?.id || currentPage.isStreaming || phase !== "idle") return;
+    if (currentPage.id.startsWith("streaming_")) return;
     setPhase("streaming");
     setError(null);
     setStatus("Agent auto-drill…");
     try {
-      const imgRes = await fetch(currentPage.imageUrl);
-      const blob = await imgRes.blob();
-      const reader = new FileReader();
-      const parentB64 = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
-          resolve(dataUrl.split(",")[1] ?? "");
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-
-      const chain: ExplainerPageData[] = [currentPage];
+      const chain: ExplainerPageData[] = pages.slice(0, currentIndex + 1);
       await streamAutoDrill(
-        { parent_image_b64: parentB64, max_depth: 3, mode: "deterministic" },
+        {
+          parent_id: currentPage.id,
+          max_depth: 3,
+          mode: "deterministic",
+          vision_model: visionModel,
+          grounding_mode: groundingMode,
+        },
         (eventType, data) => {
           if (eventType === "status") {
             setStatus(`${data.phase} (depth ${data.depth})`);
-          } else if (eventType === "complete_depth" && typeof data.image_b64 === "string") {
+          } else if (eventType === "complete_depth" && typeof data.imageUrl === "string") {
             const depth = data.depth as number;
             chain.push({
-              id: `agent_depth_${depth}`,
-              imageUrl: `data:image/png;base64,${data.image_b64}`,
-              metadata: {
+              id: data.id as string,
+              imageUrl: data.imageUrl as string,
+              parentId: (data.parentId as string) ?? chain[chain.length - 1]?.id,
+              click: data.click as { x: number; y: number } | undefined,
+              depth,
+              metadata: (data.metadata as ExplainerPageData["metadata"]) ?? {
                 editorial_headline: (data.label as string) ?? `Auto depth ${depth}`,
               },
-              context: data.label as string,
+              context: (data.context as string) ?? (data.label as string),
+              groundingMode,
+              visionModel,
             });
             setPages([...chain]);
             setCurrentIndex(chain.length - 1);
@@ -336,7 +344,7 @@ export default function ExplainerPage() {
             <button
               type="button"
               className="explainer-btn"
-              disabled={analyzing || phase !== "idle"}
+              disabled={analyzing || phase !== "idle" || Boolean(currentPage.parentId || (currentPage.depth ?? 0) > 0)}
               onClick={() => runAnalyze(currentPage)}
             >
               {analyzing ? <Loader2 className="spin" size={14} /> : null}
