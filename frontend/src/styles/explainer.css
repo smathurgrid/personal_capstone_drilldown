@@ -216,8 +216,9 @@
 .diagram-image {
   display: block;
   width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
+  max-height: min(70vh, 540px);
+  height: auto;
+  object-fit: contain;
   border-radius: 12px;
   border: 1px solid rgba(237, 106, 44, 0.35);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
@@ -225,6 +226,8 @@
 
 .explainer-placeholder {
   width: 100%;
+  min-height: 280px;
+  max-height: min(70vh, 540px);
   aspect-ratio: 16 / 9;
   background: #151922;
   border-radius: 12px;
@@ -261,6 +264,20 @@
 .diagram-label-card:hover {
   background: rgba(237, 106, 44, 0.15);
   border-color: #ed6a2c;
+}
+
+.diagram-label-card.uncertain {
+  border-style: dashed;
+  opacity: 0.85;
+  cursor: not-allowed;
+}
+
+.diagram-label-uncertain {
+  display: block;
+  font-size: 0.65rem;
+  color: #f0a060;
+  margin-top: 0.15rem;
+  font-style: italic;
 }
 
 .diagram-label-title {

@@ -1,8 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { ExplainerPage } from "../../services/explainer-api";
-import { normalizeElementClick } from "../../utils/coords";
+import { mapNormalizedToDisplay, normalizeContainedImageClick } from "../../utils/coords";
 import { getColumnData, getDistributedY, LabelDetail } from "./label-layout";
+
+function normalizeLabelDetail(d: LabelDetail): LabelDetail {
+  const uncertain = d.positionUncertain ?? (d as { position_uncertain?: boolean }).position_uncertain;
+  return { ...d, positionUncertain: uncertain };
+}
 
 type Props = {
   page: ExplainerPage;
@@ -24,47 +29,70 @@ export default function DiagramCanvas({
   onLabelClick,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [dims, setDims] = useState({ width: 0, height: 0 });
+  const imgRef = useRef<HTMLImageElement>(null);
+  const [dims, setDims] = useState({ width: 0, height: 0, naturalWidth: 0, naturalHeight: 0 });
+
+  const updateDims = useCallback(() => {
+    const wrap = wrapRef.current;
+    const img = imgRef.current;
+    if (!wrap) return;
+    setDims({
+      width: wrap.clientWidth,
+      height: wrap.clientHeight,
+      naturalWidth: img?.naturalWidth ?? wrap.clientWidth,
+      naturalHeight: img?.naturalHeight ?? wrap.clientHeight,
+    });
+  }, []);
 
   useEffect(() => {
-    const update = () => {
-      if (wrapRef.current) {
-        setDims({
-          width: wrapRef.current.clientWidth,
-          height: wrapRef.current.clientHeight,
-        });
-      }
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, [page.imageUrl, page.id]);
+    updateDims();
+    window.addEventListener("resize", updateDims);
+    return () => window.removeEventListener("resize", updateDims);
+  }, [page.imageUrl, page.id, updateDims]);
 
-  const details: LabelDetail[] = (page.metadata?.granular_details ?? []).filter(
-    (d) => d.point && d.point.length >= 2
-  ) as LabelDetail[];
+  const rawDetails: LabelDetail[] = (page.metadata?.granular_details ?? []).map(normalizeLabelDetail);
+  const details = rawDetails.filter((d) => d.label);
+  const positionedDetails = details.filter(
+    (d) => d.point && d.point.length >= 2 && !d.positionUncertain
+  );
 
   const showLabels = !page.isStreaming && !analyzing && details.length > 0;
   const showOverlay = page.isStreaming || analyzing || busy;
 
+  const toDisplay = (nx: number, ny: number) =>
+    mapNormalizedToDisplay(
+      nx,
+      ny,
+      dims.width,
+      dims.height,
+      dims.naturalWidth,
+      dims.naturalHeight
+    );
+
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (page.isStreaming || busy) return;
-    const img = e.currentTarget.querySelector("img");
+    const img = imgRef.current;
     if (!img) return;
-    const { x, y } = normalizeElementClick(e, img, { clamp: true });
-    if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    onCanvasClick(x, y);
+    const coords = normalizeContainedImageClick(e.clientX, e.clientY, img, { clamp: true });
+    if (!coords) return;
+    onCanvasClick(coords.x, coords.y);
   };
+
+  const clickDisplay = lastClick
+    ? toDisplay(lastClick.x, lastClick.y)
+    : null;
 
   return (
     <div className="diagram-stage">
       <div className="diagram-canvas-wrap" ref={wrapRef} onClick={handleClick}>
         {page.imageUrl ? (
           <img
+            ref={imgRef}
             src={page.imageUrl}
             alt="Explainer canvas"
             className="diagram-image"
             draggable={false}
+            onLoad={updateDims}
           />
         ) : (
           <div className="explainer-placeholder" />
@@ -95,15 +123,14 @@ export default function DiagramCanvas({
                 <polygon points="0 0, 8 4, 0 8" fill="#ed6a2c" />
               </marker>
             </defs>
-            {details.map((detail, idx) => {
-              const { isLeft, indexInCol } = getColumnData(details, idx);
-              const labelY = getDistributedY(details, idx);
+            {positionedDetails.map((detail, idx) => {
+              const { isLeft, indexInCol } = getColumnData(positionedDetails, idx);
+              const labelY = getDistributedY(positionedDetails, idx);
               const [px, py] = detail.point;
+              const { x: x2, y: y2 } = toDisplay(px, py);
               const staggerX = [12, 60, 110][indexInCol % 3];
               const x1 = isLeft ? -staggerX : dims.width + staggerX;
               const y1 = labelY * dims.height;
-              const x2 = px * dims.width;
-              const y2 = py * dims.height;
               return (
                 <g key={`line-${detail.label}-${idx}`}>
                   <circle cx={x2} cy={y2} r="5" fill="#ed6a2c" />
@@ -133,22 +160,26 @@ export default function DiagramCanvas({
             const { isLeft, indexInCol } = getColumnData(details, idx);
             const labelY = getDistributedY(details, idx);
             const staggerX = [12, 60, 110][indexInCol % 3];
-            const [lx, ly] = detail.point;
+            const uncertain = detail.positionUncertain || !detail.point || detail.point.length < 2;
+            const [lx, ly] = uncertain ? [0.5, 0.5] : detail.point;
             return (
               <button
                 key={`card-${detail.label}-${idx}`}
                 type="button"
-                className={`diagram-label-card ${isLeft ? "left" : "right"}`}
+                className={`diagram-label-card ${isLeft ? "left" : "right"}${uncertain ? " uncertain" : ""}`}
                 style={{
                   top: `${labelY * 100}%`,
                   ...(isLeft ? { right: `calc(100% + ${staggerX}px)` } : { left: `calc(100% + ${staggerX}px)` }),
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onLabelClick(lx, ly, detail.label);
+                  if (!uncertain) onLabelClick(lx, ly, detail.label);
                 }}
+                disabled={uncertain}
+                title={uncertain ? "Position uncertain — use canvas click to drill" : undefined}
               >
                 <span className="diagram-label-title">{detail.label}</span>
+                {uncertain && <span className="diagram-label-uncertain">Position uncertain</span>}
                 {detail.description && (
                   <span className="diagram-label-desc">{detail.description}</span>
                 )}
@@ -156,10 +187,10 @@ export default function DiagramCanvas({
             );
           })}
 
-        {lastClick && !page.isStreaming && (
+        {clickDisplay && !page.isStreaming && (
           <div
             className="click-ring"
-            style={{ left: `${lastClick.x * 100}%`, top: `${lastClick.y * 100}%` }}
+            style={{ left: `${clickDisplay.x}px`, top: `${clickDisplay.y}px` }}
           />
         )}
 
