@@ -29,7 +29,8 @@ export type ScanMode = "global" | "focus";
 export async function analyzeExplainerPage(
   pageId: string,
   visionModel: VisionModelKey = "qwen3.5",
-  scanMode: ScanMode = "global"
+  scanMode: ScanMode = "global",
+  depth?: number
 ): Promise<{
   metadata: ExplainerPage["metadata"];
   rawJson: string;
@@ -37,7 +38,7 @@ export async function analyzeExplainerPage(
   const res = await fetch(`${VISION}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pageId, visionModel, scanMode }),
+    body: JSON.stringify({ pageId, visionModel, scanMode, depth }),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -106,6 +107,7 @@ export async function streamExplainerPage(
     customTopic?: string;
     groundingMode?: string;
     visionModel?: string;
+    cacheBust?: string;
   },
   onEvent: (type: string, data: Record<string, unknown>) => void
 ) {

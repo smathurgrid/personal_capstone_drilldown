@@ -48,6 +48,13 @@ class ContextAnalyzer:
         "OUTPUT: Return ONLY a raw JSON object with these 3 root keys."
     )
 
+    FOCUS_DEEP_PROMPT = (
+        "TASK: Deep focus scan on a highly zoomed generated illustration.\n"
+        "Identify 2-4 plausible sub-features near center. Be conservative — only label what is clearly visible.\n"
+        "Each granular_details entry: label, short description, normalized point [x,y].\n"
+        "OUTPUT: Return ONLY a raw JSON object with editorial_headline, explainer_paragraph, granular_details."
+    )
+
     def __init__(self, app_settings: Settings) -> None:
         self._llm = LLMClient(app_settings)
         self._vision_model = app_settings.EXPLAINER_VISION_MODEL
@@ -195,6 +202,7 @@ class ContextAnalyzer:
         image_path: str,
         model_key: str = "qwen3.5",
         scan_mode: str = "global",
+        depth: int | None = None,
     ):
         model = self._resolve_model(model_key)
         if model is None:
@@ -206,7 +214,10 @@ class ContextAnalyzer:
                 "rawJson": "{}",
             }
 
-        prompt = self.FOCUS_DETECTION_PROMPT if scan_mode == "focus" else self.GLOBAL_DETECTION_PROMPT
+        if scan_mode == "focus":
+            prompt = self.FOCUS_DEEP_PROMPT if (depth or 0) >= 4 else self.FOCUS_DETECTION_PROMPT
+        else:
+            prompt = self.GLOBAL_DETECTION_PROMPT
         loop = asyncio.get_event_loop()
         for attempt in range(2):
             try:

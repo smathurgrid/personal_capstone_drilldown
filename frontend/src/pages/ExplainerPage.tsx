@@ -11,7 +11,7 @@ import {
   type GroundingMode,
   type VisionModelKey,
 } from "../services/explainer-api";
-import { streamAutoDrill } from "../services/agent-api";
+import { imageUrlToB64, pickNextRegion } from "../services/agent-api";
 import { useExplainerSession } from "../hooks/useExplainerSession";
 import { getErrorMessage } from "../utils/errors";
 import DiagramCanvas from "./explainer/DiagramCanvas";
@@ -63,6 +63,7 @@ export default function ExplainerPage() {
   const [lastClick, setLastClick] = useState<{ x: number; y: number } | null>(null);
   const [pendingDrill, setPendingDrill] = useState<PendingDrill | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const autoDrillRef = useRef<{ depth: number; maxDepth: number } | null>(null);
 
   const currentPage = currentIndex >= 0 ? pages[currentIndex] : null;
   const analyzing = analyzingId === currentPage?.id;
@@ -84,10 +85,10 @@ export default function ExplainerPage() {
       if (!page.id || page.isStreaming || page.id.startsWith("streaming_")) return;
       const depth = page.depth ?? 0;
       if (scanMode === "global" && (page.parentId || depth > 0 || page.context)) return;
-      if (scanMode === "focus" && (depth < 1 || depth > 2)) return;
+      if (scanMode === "focus" && depth < 1) return;
       setAnalyzingId(page.id);
       try {
-        const result = await analyzeExplainerPage(page.id, visionModel, scanMode);
+        const result = await analyzeExplainerPage(page.id, visionModel, scanMode, depth);
         setPages((prev) =>
           prev.map((p) =>
             p.id === page.id ? { ...p, metadata: result.metadata, rawJson: result.rawJson } : p
@@ -172,9 +173,10 @@ export default function ExplainerPage() {
       setPhase("idle");
       setStatus("");
       setPendingDrill(null);
-      if ((page.depth ?? 0) >= 1 && (page.depth ?? 0) <= 2) {
+      if ((page.depth ?? 0) >= 1) {
         runAnalyze(page, "focus");
       }
+      return page;
     },
     [runAnalyze]
   );
@@ -185,7 +187,7 @@ export default function ExplainerPage() {
     setStatus("Rendering next layer…");
     try {
       const data = await confirmExplainerDrill(pendingDrill.pageId, drillTopic);
-      finalizeDrillPage(
+      const completed = finalizeDrillPage(
         pageFromDrillResult(data as unknown as Record<string, unknown>, {
           parentId: pendingDrill.parentId,
           x: pendingDrill.click.x,
@@ -194,6 +196,13 @@ export default function ExplainerPage() {
           visionModel,
         })
       );
+      const auto = autoDrillRef.current;
+      if (auto && auto.depth < auto.maxDepth) {
+        autoDrillRef.current = { depth: auto.depth + 1, maxDepth: auto.maxDepth };
+        void runAutoPickAndDrill(completed);
+      } else {
+        autoDrillRef.current = null;
+      }
     } catch (err) {
       setError(getErrorMessage(err, "Generation failed"));
       setPhase("confirm");
@@ -209,6 +218,7 @@ export default function ExplainerPage() {
       }
     }
     setPendingDrill(null);
+    autoDrillRef.current = null;
     setPages((prev) => {
       const next = [...prev];
       if (next[next.length - 1]?.isStreaming) next.pop();
@@ -219,26 +229,39 @@ export default function ExplainerPage() {
     setStatus("");
   };
 
-  const triggerDrill = async (x: number, y: number, customTopic?: string) => {
-    if (!currentPage || currentPage.isStreaming || (phase !== "idle" && phase !== "confirm")) return;
+  const triggerDrill = async (
+    x: number,
+    y: number,
+    customTopic?: string,
+    cacheBust?: string,
+    parentOverride?: ExplainerPageData
+  ) => {
+    const drillParent = parentOverride ?? currentPage;
+    if (!drillParent || drillParent.isStreaming || (phase !== "idle" && phase !== "confirm")) return;
     setLastClick({ x, y });
     setPhase("streaming");
     setError(null);
     setStatus("");
     setPendingDrill(null);
-    const parentId = currentPage.id;
+    const parentId = drillParent.id;
     const streamingPage: ExplainerPageData = {
       id: "streaming_drill",
-      imageUrl: currentPage.imageUrl,
+      imageUrl: drillParent.imageUrl,
       isStreaming: true,
       streamStatus: "Drilling…",
     };
-    setPages((prev) => [...prev.slice(0, currentIndex + 1), streamingPage]);
-    setCurrentIndex(currentIndex + 1);
+    setPages((prev) => {
+      const parentIdx = parentOverride
+        ? prev.findIndex((p) => p.id === parentOverride.id)
+        : currentIndex;
+      const baseIdx = parentIdx >= 0 ? parentIdx : currentIndex;
+      setCurrentIndex(baseIdx + 1);
+      return [...prev.slice(0, baseIdx + 1), streamingPage];
+    });
 
     try {
       await streamExplainerPage(
-        { parentId, x, y, customTopic, visionModel, groundingMode },
+        { parentId, x, y, customTopic, visionModel, groundingMode, cacheBust },
         (eventType, data) => {
           if (eventType === "complete") {
             finalizeDrillPage(
@@ -301,50 +324,50 @@ export default function ExplainerPage() {
     }
   };
 
+  const runAutoPickAndDrill = useCallback(
+    async (parentPage: ExplainerPageData) => {
+      const state = autoDrillRef.current;
+      if (!state) return;
+      setPhase("streaming");
+      setError(null);
+      try {
+        const b64 = await imageUrlToB64(parentPage.imageUrl);
+        const pick = await pickNextRegion(b64);
+        setStatus(
+          `Auto drill ${state.depth}/${state.maxDepth}: ${(pick.label as string) ?? "region"}`
+        );
+        await triggerDrill(pick.x, pick.y, undefined, undefined, parentPage);
+      } catch (err) {
+        setError(getErrorMessage(err, "Auto-drill failed"));
+        autoDrillRef.current = null;
+        setPhase("idle");
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visionModel, groundingMode, currentIndex, phase]
+  );
+
   const handleAutoDrill = async () => {
     if (!currentPage?.id || currentPage.isStreaming || phase !== "idle") return;
     if (currentPage.id.startsWith("streaming_")) return;
-    setPhase("streaming");
-    setError(null);
-    setStatus("Agent auto-drill…");
-    try {
-      const chain: ExplainerPageData[] = pages.slice(0, currentIndex + 1);
-      await streamAutoDrill(
-        {
-          parent_id: currentPage.id,
-          max_depth: 3,
-          mode: "deterministic",
-          vision_model: visionModel,
-          grounding_mode: groundingMode,
-        },
-        (eventType, data) => {
-          if (eventType === "status") {
-            setStatus(`${data.phase} (depth ${data.depth})`);
-          } else if (eventType === "complete_depth" && typeof data.imageUrl === "string") {
-            const depth = data.depth as number;
-            const page = pageFromDrillResult(data, {
-              parentId: chain[chain.length - 1]?.id ?? "",
-              x: (data.x as number) ?? 0.5,
-              y: (data.y as number) ?? 0.5,
-              groundingMode,
-              visionModel,
-            });
-            page.depth = depth;
-            chain.push(page);
-            setPages([...chain]);
-            setCurrentIndex(chain.length - 1);
-            if (depth >= 1 && depth <= 2) runAnalyze(page, "focus");
-          } else if (eventType === "error") {
-            throw new Error((data.message as string) ?? "Auto-drill failed");
-          }
-        }
-      );
-    } catch (err) {
-      setError(getErrorMessage(err, "Auto-drill failed"));
-    } finally {
-      setPhase("idle");
-      setStatus("");
-    }
+    autoDrillRef.current = { depth: 1, maxDepth: 3 };
+    await runAutoPickAndDrill(currentPage);
+  };
+
+  const handleRegenerate = () => {
+    if (!currentPage?.parentId || !currentPage.click) return;
+    const parentPage = pages.find((p) => p.id === currentPage.parentId);
+    if (!parentPage) return;
+    const bust = crypto.randomUUID();
+    setPages((prev) => prev.slice(0, currentIndex));
+    setCurrentIndex((i) => Math.max(0, i - 1));
+    void triggerDrill(
+      currentPage.click.x,
+      currentPage.click.y,
+      currentPage.metadata?.object,
+      bust,
+      parentPage
+    );
   };
 
   const activeGrounding = currentPage?.groundingMode ?? groundingMode;
@@ -446,6 +469,14 @@ export default function ExplainerPage() {
             >
               {analyzing ? <Loader2 className="spin" size={14} /> : null}
               Re-scan labels
+            </button>
+            <button
+              type="button"
+              className="explainer-btn"
+              disabled={phase !== "idle" || !currentPage.parentId || !currentPage.click}
+              onClick={handleRegenerate}
+            >
+              Try again
             </button>
             <button
               type="button"
