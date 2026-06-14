@@ -45,7 +45,36 @@ export async function generateDrillImage(body: {
   return res.json() as Promise<{ image_b64: string }>;
 }
 
-/** F7 auto-drill SSE — deterministic or pi-agent mode. */
+/** Pick next region on a parent image (F7 step 1). */
+export async function pickNextRegion(imageB64: string): Promise<{
+  x: number;
+  y: number;
+  label?: string;
+}> {
+  const res = await fetch(`${TOOLS}/pick_next_region`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image_b64: imageB64 }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function imageUrlToB64(imageUrl: string): Promise<string> {
+  const res = await fetch(imageUrl);
+  const blob = await res.blob();
+  const reader = new FileReader();
+  return new Promise((resolve, reject) => {
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      resolve(dataUrl.split(",")[1] ?? "");
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** F7 auto-drill SSE — pick events; confirm loop runs on client. */
 export async function streamAutoDrill(
   params: {
     parent_id?: string;

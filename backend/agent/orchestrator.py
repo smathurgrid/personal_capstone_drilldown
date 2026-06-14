@@ -25,9 +25,8 @@ async def run_deterministic_drill(
     grounding_mode: str = "red_ring",
     session_id: str | None = None,
 ) -> AsyncIterator[str]:
-    """F7 loop: pick_next_region → PageOrchestrator drill (SSE events)."""
+    """Emit pick events only — client runs confirm drill loop per depth."""
     factory = get_service_factory()
-    orchestrator = factory.create_explainer_page_orchestrator()
     page_store = factory.create_explainer_page_store()
 
     if not parent_id:
@@ -54,36 +53,27 @@ async def run_deterministic_drill(
             yield _sse("status", {"depth": depth, "phase": "pick_next_region"})
 
             pick = await layer3.handle_pick_next_region({"image_b64": parent_b64})
-            yield _sse("pick", {"depth": depth, **pick})
-
             yield _sse(
-                "status",
-                {"depth": depth, "phase": "drill", "x": pick["x"], "y": pick["y"]},
-            )
-            result = await orchestrator.get_or_create_page(
-                parent_id=current_parent_id,
-                x=pick["x"],
-                y=pick["y"],
-                vision_model=vision_model,
-                grounding_mode=grounding_mode,
-                skip_confirm=True,
-            )
-            current_parent_id = result["id"]
-            yield _sse(
-                "complete_depth",
+                "pick",
                 {
                     "depth": depth,
-                    "id": result["id"],
-                    "imageUrl": result.get("imageUrl"),
+                    "parent_id": current_parent_id,
+                    "requires_confirm": True,
+                    **pick,
+                },
+            )
+            yield _sse(
+                "await_confirm",
+                {
+                    "depth": depth,
+                    "parent_id": current_parent_id,
                     "x": pick["x"],
                     "y": pick["y"],
                     "label": pick.get("label"),
-                    "metadata": result.get("metadata"),
-                    "context": result.get("context"),
-                    "parentId": result.get("parentId"),
-                    "click": result.get("click"),
+                    "message": "Confirm drill target before continuing auto-drill",
                 },
             )
+            return
 
         yield _sse(
             "complete",
