@@ -1,5 +1,7 @@
 """Explainer page workflow orchestration (topic, drill-down, streaming)."""
 
+import json
+
 from backend.core.protocols import (
     ExplainerPageStore,
     ExplainerPageWorkflow,
@@ -17,6 +19,9 @@ from backend.shared.generation_bridge import generate_topic_image_to_file
 
 
 class PageOrchestrator(ExplainerPageWorkflow):
+    _DRILL_COORD_PRECISION = 4
+    _DRILL_INCLUDE_CUSTOM_TOPIC_IN_HASH = True
+
     def __init__(
         self,
         page_store: ExplainerPageStore,
@@ -57,8 +62,8 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 vision_model,
                 grounding_mode,
                 custom_topic,
-                coord_precision=2,
-                include_custom_topic_in_hash=False,
+                coord_precision=self._DRILL_COORD_PRECISION,
+                include_custom_topic_in_hash=self._DRILL_INCLUDE_CUSTOM_TOPIC_IN_HASH,
             )
 
         raise ValueError("Invalid parameters for page generation")
@@ -139,6 +144,15 @@ class PageOrchestrator(ExplainerPageWorkflow):
             grounding.confidence,
             grounding_mode,
         )
+        result_metadata.update(
+            {
+                "parentId": parent_id,
+                "click": {"x": x, "y": y},
+                "visionModel": vision_model,
+                "groundingMode": grounding_mode,
+                "depth": self._parent_depth(parent_id) + 1,
+            }
+        )
 
         return await self._drill_workflow.complete_drill(
             page_id,
@@ -171,8 +185,8 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 vision_model,
                 grounding_mode,
                 custom_topic,
-                coord_precision=4,
-                include_custom_topic_in_hash=True,
+                coord_precision=self._DRILL_COORD_PRECISION,
+                include_custom_topic_in_hash=self._DRILL_INCLUDE_CUSTOM_TOPIC_IN_HASH,
                 emit_sse=True,
             )
         )
@@ -199,6 +213,15 @@ class PageOrchestrator(ExplainerPageWorkflow):
             raw_json,
             grounding.confidence,
             grounding_mode,
+        )
+        result_metadata.update(
+            {
+                "parentId": parent_id,
+                "click": {"x": x, "y": y},
+                "visionModel": vision_model,
+                "groundingMode": grounding_mode,
+                "depth": self._parent_depth(parent_id) + 1,
+            }
         )
 
         yield format_sse_event(
@@ -270,6 +293,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
             str(parent_path), x, y, page_id, grounding_mode
         )
         grounding_path = grounding.segment_path or grounding.marked_path
+        parent_context = self._load_parent_context(parent_id)
 
         vision_result, crop_path = await self._drill_context.resolve(
             str(parent_path),
@@ -279,6 +303,24 @@ class PageOrchestrator(ExplainerPageWorkflow):
             grounding_mode,
             grounding_path,
             custom_topic,
+            parent_context=parent_context,
         )
 
         return page_id, output_path, metadata_path, parent_path, grounding, vision_result, crop_path
+
+    def _load_parent_context(self, parent_id: str) -> dict | None:
+        _, metadata_path = self._pages.drill_page_paths(parent_id)
+        if not metadata_path.exists():
+            return None
+        try:
+            with metadata_path.open() as handle:
+                return json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def _parent_depth(self, parent_id: str) -> int:
+        parent_context = self._load_parent_context(parent_id)
+        if not parent_context:
+            return 0
+        depth = parent_context.get("depth")
+        return int(depth) if isinstance(depth, int) else 0
