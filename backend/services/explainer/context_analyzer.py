@@ -39,6 +39,15 @@ class ContextAnalyzer:
         "OUTPUT: Return ONLY a raw JSON object with these 3 root keys."
     )
 
+    FOCUS_DETECTION_PROMPT = (
+        "TASK: Local focus scan for a drilled/generated illustration.\n"
+        "1. Create a short 'editorial_headline' for this zoomed view.\n"
+        "2. Write one 'explainer_paragraph' sentence about what is visible.\n"
+        "3. Identify 3-5 sub-parts near the image center in 'granular_details'. "
+        "Each MUST have: 'label', 'description', and normalized 'point' [x, y] between 0 and 1.\n"
+        "OUTPUT: Return ONLY a raw JSON object with these 3 root keys."
+    )
+
     def __init__(self, app_settings: Settings) -> None:
         self._llm = LLMClient(app_settings)
         self._vision_model = app_settings.EXPLAINER_VISION_MODEL
@@ -181,7 +190,12 @@ class ContextAnalyzer:
             return ""
         return "\n".join(parts) + "\n\n"
 
-    async def analyze_page(self, image_path: str, model_key: str = "qwen3.5"):
+    async def analyze_page(
+        self,
+        image_path: str,
+        model_key: str = "qwen3.5",
+        scan_mode: str = "global",
+    ):
         model = self._resolve_model(model_key)
         if model is None:
             return {
@@ -192,18 +206,19 @@ class ContextAnalyzer:
                 "rawJson": "{}",
             }
 
+        prompt = self.FOCUS_DETECTION_PROMPT if scan_mode == "focus" else self.GLOBAL_DETECTION_PROMPT
         loop = asyncio.get_event_loop()
         for attempt in range(2):
             try:
                 img_b64 = self._prepare_vision_image(image_path)
 
                 def run():
-                    return self._run_vision_chat(self.GLOBAL_DETECTION_PROMPT, img_b64)
+                    return self._run_vision_chat(prompt, img_b64)
 
                 raw_text = await loop.run_in_executor(None, run)
                 data = json.loads(extract_json(raw_text))
                 result = self._sanitize_coordinates(data)
-                if result.get("granular_details"):
+                if result.get("granular_details") or scan_mode == "focus":
                     return {"metadata": result, "rawJson": json.dumps(result, indent=2)}
             except Exception as exc:
                 traceback.print_exc()

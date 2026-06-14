@@ -66,6 +66,7 @@ async def run_deterministic_drill(
                 y=pick["y"],
                 vision_model=vision_model,
                 grounding_mode=grounding_mode,
+                skip_confirm=True,
             )
             current_parent_id = result["id"]
             yield _sse(
