@@ -24,9 +24,12 @@ export async function uploadExplainerImage(file: File): Promise<ExplainerPage> {
   return { ...data, imageUrl: resolveUrl(data.imageUrl) };
 }
 
+export type ScanMode = "global" | "focus";
+
 export async function analyzeExplainerPage(
   pageId: string,
-  visionModel: VisionModelKey = "qwen3.5"
+  visionModel: VisionModelKey = "qwen3.5",
+  scanMode: ScanMode = "global"
 ): Promise<{
   metadata: ExplainerPage["metadata"];
   rawJson: string;
@@ -34,10 +37,54 @@ export async function analyzeExplainerPage(
   const res = await fetch(`${VISION}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pageId, visionModel }),
+    body: JSON.stringify({ pageId, visionModel, scanMode }),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+export async function fetchExplainerPage(pageId: string): Promise<ExplainerPage> {
+  const res = await fetch(`${VISION}/page/${pageId}`);
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  const nested = data.metadata;
+  const metadata =
+    nested && typeof nested === "object" && "editorial_headline" in nested
+      ? nested
+      : nested?.metadata ?? nested ?? {};
+  return {
+    id: data.id,
+    imageUrl: resolveUrl(data.imageUrl),
+    parentId: data.parentId,
+    click: data.click,
+    depth: data.depth,
+    context: data.context,
+    metadata,
+    groundingMode: data.groundingMode,
+    visionModel: data.visionModel,
+    rawJson: data.rawJson,
+    inputPrompt: data.inputPrompt,
+    samConfidence: data.samConfidence,
+  };
+}
+
+export async function confirmExplainerDrill(
+  pageId: string,
+  drillTopic?: string
+): Promise<ExplainerPage> {
+  const res = await fetch(`${VISION}/confirm-drill`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pageId, drillTopic }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return { ...data, imageUrl: resolveUrl(data.imageUrl) };
+}
+
+export async function cancelExplainerDrill(pageId: string): Promise<void> {
+  const res = await fetch(`${VISION}/confirm-drill/${pageId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
 }
 
 export async function generateFromTopic(topic: string) {

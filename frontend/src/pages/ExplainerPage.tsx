@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Upload, Wand2, Bot } from "lucide-react";
 import {
   analyzeExplainerPage,
+  cancelExplainerDrill,
+  confirmExplainerDrill,
   fetchVisionHealth,
   streamExplainerPage,
   uploadExplainerImage,
@@ -10,8 +12,11 @@ import {
   type VisionModelKey,
 } from "../services/explainer-api";
 import { streamAutoDrill } from "../services/agent-api";
+import { useExplainerSession } from "../hooks/useExplainerSession";
 import { getErrorMessage } from "../utils/errors";
 import DiagramCanvas from "./explainer/DiagramCanvas";
+import DrillBreadcrumb from "./explainer/DrillBreadcrumb";
+import DrillConfirmModal, { type PendingDrill } from "./explainer/DrillConfirmModal";
 import MetadataPanel from "./explainer/MetadataPanel";
 import "../styles/explainer.css";
 
@@ -20,13 +25,35 @@ const STREAM_LABELS: Record<string, string> = {
   grounding: "Isolating object…",
   vision: "Analyzing component…",
   generating_image: "Rendering next layer…",
+  confirm: "Review drill target…",
 };
+
+function pageFromDrillResult(
+  data: Record<string, unknown>,
+  fallback: { parentId: string; x: number; y: number; groundingMode: string; visionModel: string }
+): ExplainerPageData {
+  return {
+    id: data.id as string,
+    imageUrl: data.imageUrl as string,
+    metadata: (data.metadata as ExplainerPageData["metadata"]) ?? {},
+    context: data.context as string,
+    parentId: (data.parentId as string) ?? fallback.parentId,
+    click: (data.click as { x: number; y: number }) ?? { x: fallback.x, y: fallback.y },
+    depth: data.depth as number | undefined,
+    groundingMode: (data.groundingMode as string) ?? fallback.groundingMode,
+    visionModel: (data.visionModel as string) ?? fallback.visionModel,
+    samConfidence: data.samConfidence as number | null | undefined,
+    inputPrompt: data.inputPrompt as string | undefined,
+    rawJson: data.rawJson as string | undefined,
+    isStreaming: false,
+  };
+}
 
 export default function ExplainerPage() {
   const [pages, setPages] = useState<ExplainerPageData[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [topic, setTopic] = useState("");
-  const [phase, setPhase] = useState<"idle" | "loading" | "streaming">("idle");
+  const [phase, setPhase] = useState<"idle" | "loading" | "streaming" | "confirm" | "generating">("idle");
   const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
@@ -34,10 +61,13 @@ export default function ExplainerPage() {
   const [visionModel, setVisionModel] = useState<VisionModelKey>("qwen3.5");
   const [sam2Available, setSam2Available] = useState(false);
   const [lastClick, setLastClick] = useState<{ x: number; y: number } | null>(null);
+  const [pendingDrill, setPendingDrill] = useState<PendingDrill | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const currentPage = currentIndex >= 0 ? pages[currentIndex] : null;
   const analyzing = analyzingId === currentPage?.id;
+
+  const { navigateToIndex } = useExplainerSession(pages, currentIndex, setPages, setCurrentIndex);
 
   useEffect(() => {
     fetchVisionHealth()
@@ -50,12 +80,14 @@ export default function ExplainerPage() {
   }, []);
 
   const runAnalyze = useCallback(
-    async (page: ExplainerPageData) => {
+    async (page: ExplainerPageData, scanMode: "global" | "focus" = "global") => {
       if (!page.id || page.isStreaming || page.id.startsWith("streaming_")) return;
-      if (page.parentId || (page.depth ?? 0) > 0 || page.context) return;
+      const depth = page.depth ?? 0;
+      if (scanMode === "global" && (page.parentId || depth > 0 || page.context)) return;
+      if (scanMode === "focus" && (depth < 1 || depth > 2)) return;
       setAnalyzingId(page.id);
       try {
-        const result = await analyzeExplainerPage(page.id, visionModel);
+        const result = await analyzeExplainerPage(page.id, visionModel, scanMode);
         setPages((prev) =>
           prev.map((p) =>
             p.id === page.id ? { ...p, metadata: result.metadata, rawJson: result.rawJson } : p
@@ -78,7 +110,7 @@ export default function ExplainerPage() {
       const data = await uploadExplainerImage(file);
       setPages([{ ...data, depth: 0 }]);
       setCurrentIndex(0);
-      await runAnalyze(data);
+      await runAnalyze({ ...data, depth: 0 });
     } catch (err) {
       setError(getErrorMessage(err, "Upload failed"));
     } finally {
@@ -130,12 +162,70 @@ export default function ExplainerPage() {
     }
   };
 
+  const finalizeDrillPage = useCallback(
+    (page: ExplainerPageData) => {
+      setPages((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = page;
+        return next;
+      });
+      setPhase("idle");
+      setStatus("");
+      setPendingDrill(null);
+      if ((page.depth ?? 0) >= 1 && (page.depth ?? 0) <= 2) {
+        runAnalyze(page, "focus");
+      }
+    },
+    [runAnalyze]
+  );
+
+  const handleConfirmDrill = async (drillTopic: string) => {
+    if (!pendingDrill) return;
+    setPhase("generating");
+    setStatus("Rendering next layer…");
+    try {
+      const data = await confirmExplainerDrill(pendingDrill.pageId, drillTopic);
+      finalizeDrillPage(
+        pageFromDrillResult(data as unknown as Record<string, unknown>, {
+          parentId: pendingDrill.parentId,
+          x: pendingDrill.click.x,
+          y: pendingDrill.click.y,
+          groundingMode,
+          visionModel,
+        })
+      );
+    } catch (err) {
+      setError(getErrorMessage(err, "Generation failed"));
+      setPhase("confirm");
+    }
+  };
+
+  const handleCancelDrill = async () => {
+    if (pendingDrill) {
+      try {
+        await cancelExplainerDrill(pendingDrill.pageId);
+      } catch {
+        /* ignore */
+      }
+    }
+    setPendingDrill(null);
+    setPages((prev) => {
+      const next = [...prev];
+      if (next[next.length - 1]?.isStreaming) next.pop();
+      return next;
+    });
+    setCurrentIndex((i) => Math.max(0, i - 1));
+    setPhase("idle");
+    setStatus("");
+  };
+
   const triggerDrill = async (x: number, y: number, customTopic?: string) => {
-    if (!currentPage || currentPage.isStreaming || phase !== "idle") return;
+    if (!currentPage || currentPage.isStreaming || (phase !== "idle" && phase !== "confirm")) return;
     setLastClick({ x, y });
     setPhase("streaming");
     setError(null);
     setStatus("");
+    setPendingDrill(null);
     const parentId = currentPage.id;
     const streamingPage: ExplainerPageData = {
       id: "streaming_drill",
@@ -150,43 +240,58 @@ export default function ExplainerPage() {
       await streamExplainerPage(
         { parentId, x, y, customTopic, visionModel, groundingMode },
         (eventType, data) => {
-          setPages((prev) => {
-            const next = [...prev];
-            const idx = next.length - 1;
-            if (eventType === "complete") {
+          if (eventType === "complete") {
+            finalizeDrillPage(
+              pageFromDrillResult(data, {
+                parentId,
+                x,
+                y,
+                groundingMode,
+                visionModel,
+              })
+            );
+          } else if (eventType === "confirm") {
+            setPendingDrill({
+              pageId: data.pageId as string,
+              parentId: (data.parentId as string) ?? parentId,
+              click: (data.click as { x: number; y: number }) ?? { x, y },
+              objectName: (data.objectName as string) ?? "Selected region",
+              drillTopic: (data.drillTopic as string) ?? "",
+              cropPreviewB64: data.cropPreviewB64 as string | undefined,
+              metadata: data.metadata as ExplainerPageData["metadata"],
+            });
+            setPhase("confirm");
+            setStatus("Review drill target before generating");
+            setPages((prev) => {
+              const next = [...prev];
+              const idx = next.length - 1;
               next[idx] = {
-                id: data.id as string,
-                imageUrl: data.imageUrl as string,
-                metadata: (data.metadata as ExplainerPageData["metadata"]) ?? {},
-                context: data.context as string,
-                parentId: (data.parentId as string) ?? parentId,
-                click: (data.click as { x: number; y: number }) ?? { x, y },
-                depth: (data.depth as number) ?? currentIndex + 1,
-                groundingMode: (data.groundingMode as string) ?? groundingMode,
-                visionModel: (data.visionModel as string) ?? visionModel,
-                samConfidence: data.samConfidence as number | null | undefined,
-                inputPrompt: data.inputPrompt as string | undefined,
-                rawJson: (data.rawJson as string) ?? next[idx].rawJson,
+                ...next[idx],
+                streamStatus: "Awaiting confirmation…",
                 isStreaming: false,
               };
-              setPhase("idle");
-              setStatus("");
-              if (!next[idx].parentId && !next[idx].context) {
-                runAnalyze(next[idx]);
-              }
-            } else if (eventType === "error") {
-              setError((data.message as string) ?? "Drill failed");
+              return next;
+            });
+          } else if (eventType === "error") {
+            setError((data.message as string) ?? "Drill failed");
+            setPages((prev) => {
+              const next = [...prev];
               next.pop();
-              setCurrentIndex((i) => Math.max(0, i - 1));
-              setPhase("idle");
-              setStatus("");
-            } else {
-              const label = (data.message as string) ?? STREAM_LABELS[eventType] ?? eventType;
+              return next;
+            });
+            setCurrentIndex((i) => Math.max(0, i - 1));
+            setPhase("idle");
+            setStatus("");
+          } else {
+            const label = (data.message as string) ?? STREAM_LABELS[eventType] ?? eventType;
+            setStatus(label);
+            setPages((prev) => {
+              const next = [...prev];
+              const idx = next.length - 1;
               next[idx] = { ...next[idx], streamStatus: label };
-              setStatus(label);
-            }
-            return next;
-          });
+              return next;
+            });
+          }
         }
       );
     } catch (err) {
@@ -217,21 +322,18 @@ export default function ExplainerPage() {
             setStatus(`${data.phase} (depth ${data.depth})`);
           } else if (eventType === "complete_depth" && typeof data.imageUrl === "string") {
             const depth = data.depth as number;
-            chain.push({
-              id: data.id as string,
-              imageUrl: data.imageUrl as string,
-              parentId: (data.parentId as string) ?? chain[chain.length - 1]?.id,
-              click: data.click as { x: number; y: number } | undefined,
-              depth,
-              metadata: (data.metadata as ExplainerPageData["metadata"]) ?? {
-                editorial_headline: (data.label as string) ?? `Auto depth ${depth}`,
-              },
-              context: (data.context as string) ?? (data.label as string),
+            const page = pageFromDrillResult(data, {
+              parentId: chain[chain.length - 1]?.id ?? "",
+              x: (data.x as number) ?? 0.5,
+              y: (data.y as number) ?? 0.5,
               groundingMode,
               visionModel,
             });
+            page.depth = depth;
+            chain.push(page);
             setPages([...chain]);
             setCurrentIndex(chain.length - 1);
+            if (depth >= 1 && depth <= 2) runAnalyze(page, "focus");
           } else if (eventType === "error") {
             throw new Error((data.message as string) ?? "Auto-drill failed");
           }
@@ -320,23 +422,14 @@ export default function ExplainerPage() {
         {error && <p className="error-text">{error}</p>}
 
         {pages.length > 0 && (
-          <div className="page-strip">
-            <span className="page-strip-label">Layers</span>
-            {pages.map((p, i) => (
-              <button
-                key={p.id + i}
-                type="button"
-                className={i === currentIndex ? "active" : ""}
-                onClick={() => {
-                  setCurrentIndex(i);
-                  setLastClick(null);
-                }}
-                title={p.metadata?.editorial_headline ?? `Layer ${i + 1}`}
-              >
-                {i + 1}
-              </button>
-            ))}
-          </div>
+          <DrillBreadcrumb
+            pages={pages.filter((p) => !p.isStreaming)}
+            currentIndex={Math.min(currentIndex, pages.length - 1)}
+            onNavigate={(i) => {
+              navigateToIndex(i);
+              setLastClick(null);
+            }}
+          />
         )}
 
         {currentPage && !currentPage.isStreaming && (
@@ -344,7 +437,11 @@ export default function ExplainerPage() {
             <button
               type="button"
               className="explainer-btn"
-              disabled={analyzing || phase !== "idle" || Boolean(currentPage.parentId || (currentPage.depth ?? 0) > 0)}
+              disabled={
+                analyzing ||
+                phase !== "idle" ||
+                Boolean(currentPage.parentId || (currentPage.depth ?? 0) > 0)
+              }
               onClick={() => runAnalyze(currentPage)}
             >
               {analyzing ? <Loader2 className="spin" size={14} /> : null}
@@ -373,7 +470,7 @@ export default function ExplainerPage() {
             <DiagramCanvas
               page={currentPage}
               analyzing={analyzing}
-              busy={phase === "loading"}
+              busy={phase === "loading" || phase === "generating"}
               statusText={status}
               lastClick={lastClick}
               onCanvasClick={(x, y) => triggerDrill(x, y)}
@@ -383,6 +480,15 @@ export default function ExplainerPage() {
           </>
         )}
       </section>
+
+      {pendingDrill && phase === "confirm" && (
+        <DrillConfirmModal
+          pending={pendingDrill}
+          busy={phase === "generating"}
+          onConfirm={handleConfirmDrill}
+          onCancel={handleCancelDrill}
+        />
+      )}
     </div>
   );
 }
