@@ -26,22 +26,31 @@ async def auto_drill(request: Request):
     mode = body.get("mode", "deterministic")
     topic = body.get("topic")
     parent_image_b64 = body.get("parent_image_b64")
+    parent_id = body.get("parent_id")
+    vision_model = body.get("vision_model", "qwen3.5")
+    grounding_mode = body.get("grounding_mode", "red_ring")
 
     if mode == "pi-agent":
         stream = run_pi_agent_drill(
             topic=topic,
             parent_image_b64=parent_image_b64,
+            parent_id=parent_id,
             max_depth=max_depth,
+            vision_model=vision_model,
+            grounding_mode=grounding_mode,
         )
     else:
-        if not parent_image_b64:
+        if not parent_id and not parent_image_b64:
             return StreamingResponse(
-                iter(['event: error\ndata: {"message": "parent_image_b64 required"}\n\n']),
+                iter(['event: error\ndata: {"message": "parent_id or parent_image_b64 required"}\n\n']),
                 media_type="text/event-stream",
             )
         stream = run_deterministic_drill(
+            parent_id=parent_id,
             parent_image_b64=parent_image_b64,
             max_depth=max_depth,
+            vision_model=vision_model,
+            grounding_mode=grounding_mode,
             session_id=body.get("session_id"),
         )
 

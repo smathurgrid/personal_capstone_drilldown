@@ -1,4 +1,4 @@
-import { API_BASE } from "./api";
+import { API_BASE, resolveUrl } from "./api";
 
 const AGENT = `${API_BASE}/api/agent`;
 const TOOLS = `${API_BASE}/api`;
@@ -48,10 +48,13 @@ export async function generateDrillImage(body: {
 /** F7 auto-drill SSE — deterministic or pi-agent mode. */
 export async function streamAutoDrill(
   params: {
+    parent_id?: string;
     parent_image_b64?: string;
     topic?: string;
     max_depth?: number;
     mode?: "deterministic" | "pi-agent";
+    vision_model?: string;
+    grounding_mode?: string;
   },
   onEvent: (type: string, data: Record<string, unknown>) => void
 ) {
@@ -61,6 +64,8 @@ export async function streamAutoDrill(
     body: JSON.stringify({
       max_depth: params.max_depth ?? 3,
       mode: params.mode ?? "deterministic",
+      vision_model: params.vision_model ?? "qwen3.5",
+      grounding_mode: params.grounding_mode ?? "red_ring",
       ...params,
     }),
   });
@@ -85,7 +90,12 @@ export async function streamAutoDrill(
         else if (line.startsWith("data: "))
           eventData = JSON.parse(line.slice(6).trim());
       }
-      if (eventData) onEvent(eventType, eventData);
+      if (eventData) {
+        if (typeof eventData.imageUrl === "string") {
+          eventData.imageUrl = resolveUrl(eventData.imageUrl);
+        }
+        onEvent(eventType, eventData);
+      }
       boundary = buffer.indexOf("\n\n");
     }
   }
