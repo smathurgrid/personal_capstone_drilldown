@@ -25,7 +25,7 @@ def get_vision_module_status() -> dict:
             "vision_model": settings.EXPLAINER_VISION_MODEL,
             "ollama_base": settings.OLLAMA_BASE,
             "llm_provider": settings.LLM_PROVIDER,
-            "vision_model_layer3": settings.VISION_MODEL,
+            "vision_model_layer3": settings.EXPLAINER_VISION_MODEL,
             "sam2_configured": bool(settings.SAM2_PATH),
             "sam2_available": sam2_available(),
             "default_grounding_mode": default_grounding_mode(),
@@ -43,6 +43,7 @@ def handle_stream_page(req: PageRequest, orchestrator: ExplainerPageWorkflow):
         vision_model=req.visionModel or "qwen3.5",
         grounding_mode=req.groundingMode or default_grounding_mode(),
         custom_topic=req.customTopic,
+        cache_bust=req.cacheBust,
     )
 
 
@@ -54,11 +55,21 @@ async def handle_analyze(
     image_path = page_store.page_image_path(req.pageId)
     if not image_path.exists():
         raise HTTPException(status_code=404, detail="Image not found")
-    return await context_analyzer.analyze_page(
+    result = await context_analyzer.analyze_page(
         str(image_path),
         model_key=req.visionModel or "qwen3.5",
         scan_mode=req.scanMode or "global",
+        depth=req.depth,
     )
+    page_store.save_page_scan(
+        req.pageId,
+        metadata=result.get("metadata", {}),
+        raw_json=result.get("rawJson", "{}"),
+        vision_model=req.visionModel or "qwen3.5",
+        scan_mode=req.scanMode or "global",
+        depth=req.depth,
+    )
+    return result
 
 
 async def handle_get_stored_page(page_id: str, orchestrator: ExplainerPageWorkflow):

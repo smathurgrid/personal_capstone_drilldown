@@ -47,7 +47,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         vision_model: str = "qwen3.5",
         grounding_mode: str = "sam2",
         custom_topic: str | None = None,
-        skip_confirm: bool = False,
+        cache_bust: str | None = None,
     ):
         if query:
             page_id, output_path = self._pages.initial_page_paths(query)
@@ -68,7 +68,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 custom_topic,
                 coord_precision=self._DRILL_COORD_PRECISION,
                 include_custom_topic_in_hash=self._DRILL_INCLUDE_CUSTOM_TOPIC_IN_HASH,
-                skip_confirm=skip_confirm,
+                cache_bust=cache_bust,
             )
 
         raise ValueError("Invalid parameters for page generation")
@@ -82,7 +82,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         vision_model: str = "qwen3.5",
         grounding_mode: str = "sam2",
         custom_topic: str | None = None,
-        skip_confirm: bool = False,
+        cache_bust: str | None = None,
     ):
         if query:
             yield format_sse_event("generating", {"message": "Generating initial image..."})
@@ -104,6 +104,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 vision_model,
                 grounding_mode,
                 custom_topic,
+                cache_bust=cache_bust,
             ):
                 yield event
             return
@@ -121,7 +122,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         *,
         coord_precision: int,
         include_custom_topic_in_hash: bool,
-        skip_confirm: bool = False,
+        cache_bust: str | None = None,
     ):
         page_id, output_path, metadata_path, parent_path, grounding, vision_result, crop_path = (
             await self._prepare_drill(
@@ -133,6 +134,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 custom_topic,
                 coord_precision=coord_precision,
                 include_custom_topic_in_hash=include_custom_topic_in_hash,
+                cache_bust=cache_bust,
             )
         )
 
@@ -178,6 +180,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         vision_model: str,
         grounding_mode: str,
         custom_topic: str | None,
+        cache_bust: str | None = None,
     ):
         page_id, output_path, metadata_path, parent_path, grounding, vision_result, crop_path = (
             await self._prepare_drill(
@@ -190,6 +193,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 coord_precision=self._DRILL_COORD_PRECISION,
                 include_custom_topic_in_hash=self._DRILL_INCLUDE_CUSTOM_TOPIC_IN_HASH,
                 emit_sse=True,
+                cache_bust=cache_bust,
             )
         )
 
@@ -295,6 +299,9 @@ class PageOrchestrator(ExplainerPageWorkflow):
             if isinstance(meta, dict) and meta.get("editorial_headline"):
                 cached["metadata"] = meta
             return cached
+        stored = self._pages.load_page_metadata(page_id)
+        if stored:
+            return stored
         image_path = self._pages.page_image_path(page_id)
         if not image_path.exists():
             raise FileNotFoundError(f"Page not found: {page_id}")
@@ -349,6 +356,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         coord_precision: int,
         include_custom_topic_in_hash: bool,
         emit_sse: bool = False,
+        cache_bust: str | None = None,
     ):
         hash_key = self._pages.drill_hash_key(
             parent_id,
@@ -359,6 +367,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
             coord_precision,
             custom_topic,
             include_custom_topic_in_hash=include_custom_topic_in_hash,
+            cache_bust=cache_bust,
         )
         page_id = self._pages.compute_content_hash(hash_key)
         output_path, metadata_path = self._pages.drill_page_paths(page_id)
@@ -390,6 +399,8 @@ class PageOrchestrator(ExplainerPageWorkflow):
             grounding_path,
             custom_topic,
             parent_context=parent_context,
+            segment_path=grounding.segment_path,
+            marked_path=grounding.marked_path,
         )
 
         return page_id, output_path, metadata_path, parent_path, grounding, vision_result, crop_path

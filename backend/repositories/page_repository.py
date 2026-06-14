@@ -34,11 +34,14 @@ class PageRepository:
         custom_topic: str | None = None,
         *,
         include_custom_topic_in_hash: bool = False,
+        cache_bust: str | None = None,
     ) -> str:
         rx, ry = round(x, coord_precision), round(y, coord_precision)
         key = f"drill_{parent_id}_{rx}_{ry}_{vision_model}_{grounding_mode}"
         if include_custom_topic_in_hash and custom_topic:
             key += f"_{custom_topic}"
+        if cache_bust:
+            key += f"_{cache_bust}"
         return key
 
     def drill_page_paths(self, page_id: str) -> tuple[Path, Path]:
@@ -58,6 +61,37 @@ class PageRepository:
 
     def page_image_path(self, page_id: str) -> Path:
         return self._static_dir / f"{page_id}.png"
+
+    def load_page_metadata(self, page_id: str) -> dict | None:
+        image_path, metadata_path = self.drill_page_paths(page_id)
+        if not image_path.exists() or not metadata_path.exists():
+            return None
+        with metadata_path.open() as handle:
+            stored = json.load(handle)
+        return {"id": page_id, "imageUrl": self.image_url(page_id), **stored}
+
+    def save_page_scan(
+        self,
+        page_id: str,
+        *,
+        metadata: dict,
+        raw_json: str,
+        vision_model: str,
+        scan_mode: str,
+        depth: int | None = None,
+    ) -> None:
+        _, metadata_path = self.drill_page_paths(page_id)
+        stored: dict = {}
+        if metadata_path.exists():
+            with metadata_path.open() as handle:
+                stored = json.load(handle)
+        stored["metadata"] = metadata
+        stored["rawJson"] = raw_json
+        stored["visionModel"] = vision_model
+        stored["scanMode"] = scan_mode
+        if depth is not None:
+            stored["depth"] = depth
+        self.save_drill_metadata(metadata_path, stored)
 
     def load_drill_cache(self, page_id: str) -> dict | None:
         image_path, metadata_path = self.drill_page_paths(page_id)
