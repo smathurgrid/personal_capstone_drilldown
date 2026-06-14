@@ -10,7 +10,7 @@ from PIL import Image
 
 from backend.services.explainer.context_analyzer import ContextAnalyzer
 from backend.services.explainer.drill_analyzer import DrillAnalyzer
-from backend.shared.image_utils import path_to_b64, prepare_drill_surfaces
+from backend.shared.image_utils import draw_red_ring_b64, path_to_b64, prepare_drill_surfaces
 
 
 class DrillContextResolver:
@@ -79,13 +79,27 @@ class DrillContextResolver:
         x: float,
         y: float,
         *,
+        segment_path: str | None = None,
+        marked_path: str | None = None,
         label_hint: str | None = None,
         parent_context: dict | None = None,
     ) -> tuple[dict, None]:
         raw, w, h = self._read_parent_bytes(parent_path)
         x_px = int(x * w)
         y_px = int(y * h)
-        global_b64, local_b64, _, _ = prepare_drill_surfaces(raw, x_px, y_px, 80)
+
+        seg = Path(segment_path) if segment_path else None
+        marked = Path(marked_path) if marked_path else None
+
+        if seg and seg.exists():
+            local_b64 = path_to_b64(seg)
+            if marked and marked.exists():
+                global_b64 = path_to_b64(marked)
+            else:
+                global_b64 = draw_red_ring_b64(parent_path, x, y)
+        else:
+            global_b64, local_b64, _, _ = prepare_drill_surfaces(raw, x_px, y_px, 80)
+
         result = await self._drill_analyzer.analyze_drill(
             global_b64,
             local_b64,
@@ -108,14 +122,21 @@ class DrillContextResolver:
         grounding_path: str | None,
         custom_topic: str | None,
         parent_context: dict | None = None,
+        *,
+        segment_path: str | None = None,
+        marked_path: str | None = None,
     ):
         if vision_model == "none":
             crop_b64 = path_to_b64(parent_path)
             try:
-                raw, w, h = self._read_parent_bytes(parent_path)
-                x_px, y_px = int(x * w), int(y * h)
-                _, local_b64, _, _ = prepare_drill_surfaces(raw, x_px, y_px, 80)
-                crop_b64 = local_b64
+                seg = Path(segment_path) if segment_path else None
+                if seg and seg.exists():
+                    crop_b64 = path_to_b64(seg)
+                else:
+                    raw, w, h = self._read_parent_bytes(parent_path)
+                    x_px, y_px = int(x * w), int(y * h)
+                    _, local_b64, _, _ = prepare_drill_surfaces(raw, x_px, y_px, 80)
+                    crop_b64 = local_b64
             except OSError:
                 pass
             return {
@@ -162,6 +183,8 @@ class DrillContextResolver:
                 parent_path,
                 x,
                 y,
+                segment_path=segment_path,
+                marked_path=marked_path,
                 label_hint=custom_topic,
                 parent_context=parent_context,
             )
@@ -170,5 +193,7 @@ class DrillContextResolver:
             parent_path,
             x,
             y,
+            segment_path=segment_path,
+            marked_path=marked_path,
             parent_context=parent_context,
         )
