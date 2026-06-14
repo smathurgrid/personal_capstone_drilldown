@@ -68,6 +68,7 @@ class EcommerceCatalogService:
             "imageId": image_id,
             "x": x,
             "y": y,
+            "canvasImageUrl": f"/uploads/{image_filename}",
             "attributes": attributes,
             "results": results,
         }
@@ -101,6 +102,7 @@ class EcommerceCatalogService:
             "productId": product_id,
             "x": x,
             "y": y,
+            "canvasImageUrl": f"/dataset/{product_id}.jpg",
             "attributes": attributes,
             "results": results,
         }

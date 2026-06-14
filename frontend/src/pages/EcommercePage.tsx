@@ -1,10 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Home } from "lucide-react";
 import { drillProduct, identifyItem, type DrillNode } from "../services/ecommerce-api";
+import { resolveUrl } from "../../services/api";
 import OutfitCanvas from "./ecommerce/OutfitCanvas";
 import DrillHistory from "./ecommerce/DrillHistory";
 import ProductDrawer from "./ecommerce/ProductDrawer";
 import UploadSection from "./ecommerce/UploadSection";
+
+function nodeCanvasUrl(node: DrillNode, outfitUrl: string): string {
+  return resolveUrl(node.canvasImageUrl ?? outfitUrl);
+}
 
 export default function EcommercePage() {
   const [currentImage, setCurrentImage] = useState<{ imageId: string; imageUrl: string } | null>(null);
@@ -13,6 +18,21 @@ export default function EcommercePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState<DrillNode | null>(null);
   const [pendingMarker, setPendingMarker] = useState<{ x: number; y: number } | null>(null);
+  const [activeCanvasUrl, setActiveCanvasUrl] = useState<string | null>(null);
+
+  const outfitUrl = currentImage?.imageUrl ?? "";
+
+  const displayCanvasUrl = activeCanvasUrl ?? outfitUrl;
+
+  const canvasMarkers = useMemo(() => {
+    const markers = history
+      .filter((h) => nodeCanvasUrl(h, outfitUrl) === displayCanvasUrl)
+      .map((h) => ({ x: h.x, y: h.y }));
+    if (pendingMarker && displayCanvasUrl === (activeCanvasUrl ?? outfitUrl)) {
+      markers.push(pendingMarker);
+    }
+    return markers;
+  }, [history, outfitUrl, displayCanvasUrl, activeCanvasUrl, pendingMarker]);
 
   const handleHome = () => {
     setCurrentImage(null);
@@ -20,6 +40,7 @@ export default function EcommercePage() {
     setSelectedItem(null);
     setIsDrawerOpen(false);
     setPendingMarker(null);
+    setActiveCanvasUrl(null);
   };
 
   const handleUploadSuccess = (imageData: { imageId: string; imageUrl: string }) => {
@@ -27,6 +48,7 @@ export default function EcommercePage() {
     setHistory([]);
     setSelectedItem(null);
     setIsDrawerOpen(false);
+    setActiveCanvasUrl(imageData.imageUrl);
   };
 
   const handleClick = async (x: number, y: number) => {
@@ -39,6 +61,7 @@ export default function EcommercePage() {
       const node = await identifyItem(currentImage.imageId, x, y);
       setSelectedItem(node);
       setHistory((prev) => [...prev, node]);
+      setActiveCanvasUrl(node.canvasImageUrl ? resolveUrl(node.canvasImageUrl) : currentImage.imageUrl);
       setPendingMarker(null);
     } catch (err) {
       console.error(err);
@@ -54,14 +77,13 @@ export default function EcommercePage() {
       const node = await drillProduct(productId, x, y);
       setSelectedItem(node);
       setHistory((prev) => [...prev, node]);
+      setActiveCanvasUrl(resolveUrl(node.canvasImageUrl!));
     } catch (err) {
       console.error(err);
     } finally {
       setIsLoading(false);
     }
   };
-
-  const allMarkers = [...history.map((h) => ({ x: h.x, y: h.y })), ...(pendingMarker ? [pendingMarker] : [])];
 
   return (
     <div className="flex h-full min-h-[calc(100vh-56px)] bg-luxury-black overflow-hidden relative">
@@ -87,14 +109,17 @@ export default function EcommercePage() {
                   setHistory([]);
                   setSelectedItem(null);
                   setIsDrawerOpen(false);
+                  setActiveCanvasUrl(outfitUrl);
                   return;
                 }
                 const slice = history.slice(0, index + 1);
+                const node = slice[slice.length - 1];
                 setHistory(slice);
-                setSelectedItem(slice[slice.length - 1]);
+                setSelectedItem(node);
+                setActiveCanvasUrl(nodeCanvasUrl(node, outfitUrl));
               }}
             />
-            <OutfitCanvas imageUrl={currentImage.imageUrl} onClick={handleClick} markers={allMarkers} />
+            <OutfitCanvas imageUrl={displayCanvasUrl} onClick={handleClick} markers={canvasMarkers} />
           </>
         )}
       </main>

@@ -12,6 +12,7 @@ export type DrillNode = {
   results: ProductResult[];
   imageId?: string;
   productId?: number;
+  canvasImageUrl?: string;
 };
 
 export type UploadResult = {
