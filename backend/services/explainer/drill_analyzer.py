@@ -58,7 +58,7 @@ class DrillAnalyzer:
 
     def __init__(self, app_settings: Settings) -> None:
         self._llm = LLMClient(app_settings)
-        self._vision_model = app_settings.VISION_MODEL
+        self._vision_model = app_settings.EXPLAINER_VISION_MODEL
 
     @staticmethod
     def _resize_for_vlm(img: Image.Image, max_size: int = 768) -> str:
