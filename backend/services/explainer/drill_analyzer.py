@@ -28,6 +28,11 @@ ANALYSIS:
 IMAGE_PROMPT:
 <your generation prompt>"""
 
+_LABEL_HINT_PREFIX = (
+    "The user selected the label '{label}' at the marked click location. "
+    "Confirm or correct the object name in your ANALYSIS, then produce IMAGE_PROMPT.\n\n"
+)
+
 
 def _parse_vlm_sections(raw: str) -> tuple[str, str]:
     analysis = ""
@@ -66,10 +71,31 @@ class DrillAnalyzer:
         img.save(buf, format="JPEG", quality=85)
         return base64.b64encode(buf.getvalue()).decode("utf-8")
 
-    def _run_dual_image_vlm(self, global_b64: str, local_b64: str) -> str:
+    def _build_prompt(
+        self,
+        *,
+        label_hint: str | None = None,
+        parent_context: dict | None = None,
+    ) -> str:
+        parts: list[str] = []
+        if parent_context:
+            meta = parent_context.get("metadata", parent_context)
+            if isinstance(meta, dict):
+                headline = meta.get("editorial_headline") or meta.get("object")
+                paragraph = meta.get("explainer_paragraph")
+                if headline:
+                    parts.append(f"Parent layer: {headline}")
+                if paragraph:
+                    parts.append(f"Parent context: {paragraph}")
+        if label_hint:
+            parts.append(_LABEL_HINT_PREFIX.format(label=label_hint))
+        parts.append(_TWO_TASK_PROMPT)
+        return "\n".join(parts)
+
+    def _run_dual_image_vlm(self, global_b64: str, local_b64: str, prompt: str) -> str:
         return self._llm.chat_completion(
             self._vision_model,
-            _TWO_TASK_PROMPT,
+            prompt,
             images=[global_b64, local_b64],
             temperature=0.1,
             timeout=300,
@@ -79,11 +105,15 @@ class DrillAnalyzer:
         self,
         global_b64: str,
         local_b64: str,
+        *,
+        label_hint: str | None = None,
+        parent_context: dict | None = None,
     ) -> dict[str, str]:
         loop = asyncio.get_event_loop()
+        prompt = self._build_prompt(label_hint=label_hint, parent_context=parent_context)
 
         def run() -> str:
-            return self._run_dual_image_vlm(global_b64, local_b64)
+            return self._run_dual_image_vlm(global_b64, local_b64, prompt)
 
         raw = await loop.run_in_executor(None, run)
         analysis, image_prompt = _parse_vlm_sections(raw)

@@ -7,6 +7,7 @@ from backend.services.ecommerce.drill_coordinator import DrillCoordinator
 from backend.services.ecommerce.identification_service import IdentificationService
 from backend.services.ecommerce.search_service import SearchService
 from backend.services.explainer.context_analyzer import ContextAnalyzer
+from backend.services.explainer.drill_analyzer import DrillAnalyzer
 from backend.services.explainer.drill_context_resolver import DrillContextResolver
 from backend.services.explainer.grounding_service import GroundingService
 from backend.services.explainer.page_orchestrator import PageOrchestrator
@@ -26,6 +27,7 @@ class ServiceFactory:
         self._drill_history: HistoryRepository | None = None
         self._explainer_page_store: PageRepository | None = None
         self._explainer_context_analyzer: ContextAnalyzer | None = None
+        self._explainer_drill_analyzer: DrillAnalyzer | None = None
         self._explainer_grounding: GroundingService | None = None
         self._explainer_drill_context: DrillContextResolver | None = None
         self._explainer_page_orchestrator: PageOrchestrator | None = None
@@ -81,10 +83,16 @@ class ServiceFactory:
             )
         return self._explainer_grounding
 
+    def create_explainer_drill_analyzer(self) -> DrillAnalyzer:
+        if self._explainer_drill_analyzer is None:
+            self._explainer_drill_analyzer = DrillAnalyzer(self._settings)
+        return self._explainer_drill_analyzer
+
     def create_explainer_drill_context_resolver(self) -> DrillContextResolver:
         if self._explainer_drill_context is None:
             self._explainer_drill_context = DrillContextResolver(
-                self.create_explainer_context_analyzer()
+                self.create_explainer_context_analyzer(),
+                self.create_explainer_drill_analyzer(),
             )
         return self._explainer_drill_context
 
