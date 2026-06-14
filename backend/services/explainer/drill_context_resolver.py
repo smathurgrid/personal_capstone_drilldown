@@ -20,6 +20,7 @@ class DrillContextResolver:
         grounding_mode: str,
         grounding_path: str | None,
         custom_topic: str | None,
+        parent_context: dict | None = None,
     ):
         if custom_topic:
             return {
@@ -76,5 +77,10 @@ class DrillContextResolver:
             return {"isComparison": True, "results": results, "groundingMode": grounding_mode}, None
 
         return await self._analyzer.identify_drill_context(
-            parent_path, x, y, model_key=vision_model, segment_path=grounding_path
+            parent_path,
+            x,
+            y,
+            model_key=vision_model,
+            segment_path=grounding_path,
+            parent_context=parent_context,
         )

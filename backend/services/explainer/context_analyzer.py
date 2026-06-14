@@ -43,6 +43,32 @@ class ContextAnalyzer:
         self._llm = LLMClient(app_settings)
         self._vision_model = app_settings.EXPLAINER_VISION_MODEL
 
+    def _resolve_model(self, model_key: str) -> str | None:
+        if model_key == "none":
+            return None
+        return self._vision_model
+
+    @staticmethod
+    def _normalize_scalar(val: float) -> float:
+        if val > 2.0:
+            return round(val / 1000.0, 4)
+        return round(val, 4)
+
+    @classmethod
+    def _bbox_to_point(cls, bbox: list) -> list[float] | None:
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            return None
+        vals = [cls._normalize_scalar(float(v)) for v in bbox]
+        a, b, c, d = vals
+        candidates = [
+            ((b + d) / 2.0, (a + c) / 2.0),
+            ((a + c) / 2.0, (b + d) / 2.0),
+        ]
+        for cx, cy in candidates:
+            if 0.0 <= cx <= 1.0 and 0.0 <= cy <= 1.0:
+                return [round(cx, 4), round(cy, 4)]
+        return None
+
     @classmethod
     def _sanitize_coordinates(cls, data):
         if isinstance(data, list):
@@ -90,9 +116,10 @@ class ContextAnalyzer:
                 detail["description"] = detail.get(
                     "text", detail.get("explainer", detail.get("purpose", ""))
                 )
-            if "bbox_2d" in detail and isinstance(detail["bbox_2d"], list) and len(detail["bbox_2d"]) == 4:
-                y1, x1, y2, x2 = detail["bbox_2d"]
-                detail["point"] = [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
+            if "bbox_2d" in detail and isinstance(detail["bbox_2d"], list):
+                bbox_point = cls._bbox_to_point(detail["bbox_2d"])
+                if bbox_point:
+                    detail["point"] = bbox_point
             if "point" not in detail:
                 for k_p in ["centerPoint", "center_point", "center", "location"]:
                     if k_p in detail:
@@ -100,15 +127,16 @@ class ContextAnalyzer:
                         break
             point = detail.get("point")
             if isinstance(point, list) and len(point) >= 2:
-                normalized = []
-                for val in [float(point[0]), float(point[1])]:
-                    if val > 2.0:
-                        normalized.append(round(val / 1000.0, 4))
-                    else:
-                        normalized.append(round(val, 4))
-                detail["point"] = normalized
+                normalized = [cls._normalize_scalar(float(point[0])), cls._normalize_scalar(float(point[1]))]
+                if 0.0 <= normalized[0] <= 1.0 and 0.0 <= normalized[1] <= 1.0:
+                    detail["point"] = normalized
+                    detail.pop("position_uncertain", None)
+                else:
+                    detail.pop("point", None)
+                    detail["position_uncertain"] = True
             else:
-                detail["point"] = [0.5, 0.5]
+                detail.pop("point", None)
+                detail["position_uncertain"] = True
         return data
 
     @staticmethod
@@ -132,8 +160,38 @@ class ContextAnalyzer:
             think=False,
         )
 
+    @staticmethod
+    def _build_parent_context_block(parent_context: dict | None) -> str:
+        if not parent_context:
+            return ""
+        meta = parent_context.get("metadata", parent_context)
+        if not isinstance(meta, dict):
+            return ""
+        headline = meta.get("editorial_headline") or meta.get("object") or ""
+        paragraph = meta.get("explainer_paragraph") or ""
+        depth = parent_context.get("depth")
+        parts = []
+        if headline:
+            parts.append(f"Parent layer headline: {headline}")
+        if paragraph:
+            parts.append(f"Parent context: {paragraph}")
+        if depth is not None:
+            parts.append(f"Drill depth: {int(depth) + 1}")
+        if not parts:
+            return ""
+        return "\n".join(parts) + "\n\n"
+
     async def analyze_page(self, image_path: str, model_key: str = "qwen3.5"):
-        del model_key  # retained for API compatibility
+        model = self._resolve_model(model_key)
+        if model is None:
+            return {
+                "metadata": {
+                    "editorial_headline": "Vision skipped",
+                    "granular_details": [],
+                },
+                "rawJson": "{}",
+            }
+
         loop = asyncio.get_event_loop()
         for attempt in range(2):
             try:
@@ -166,16 +224,39 @@ class ContextAnalyzer:
         y: float,
         model_key: str = "qwen3.5",
         segment_path: str | None = None,
+        parent_context: dict | None = None,
     ):
         loop = asyncio.get_event_loop()
         import os
 
         process_path = segment_path if segment_path and os.path.exists(segment_path) else image_path
+        model = self._resolve_model(model_key)
+        if model is None:
+            return {
+                "drill_topic": (
+                    "a detailed macro-zoom into the textures and components of this specific area"
+                ),
+                "metadata": {
+                    "object": "Undefined Component",
+                    "editorial_headline": "The Pure Detail",
+                    "explainer_paragraph": (
+                        "Direct visual drill-down without semantic analysis. "
+                        "Generation uses textures and shapes from the grounded region."
+                    ),
+                },
+                "input_prompt": "N/A — vision skipped",
+                "raw_json": "{}",
+            }, process_path
+
+        parent_block = self._build_parent_context_block(parent_context)
+        click_block = f"Click location (normalized): x={round(x, 4)}, y={round(y, 4)}.\n\n"
+        prompt = parent_block + click_block + self.STRUCTURED_PROMPT
+
         try:
             img_b64 = self._prepare_vision_image(process_path, max_size=800)
 
             def run():
-                return self._run_vision_chat(self.STRUCTURED_PROMPT, img_b64)
+                return self._run_vision_chat(prompt, img_b64)
 
             raw_text = await loop.run_in_executor(None, run)
             data = json.loads(extract_json(raw_text))
@@ -188,7 +269,7 @@ class ContextAnalyzer:
                 "raw_json": json.dumps(result, indent=2),
                 "rawJson": json.dumps(result, indent=2),
                 "metadata": result,
-                "input_prompt": self.STRUCTURED_PROMPT[:200],
+                "input_prompt": prompt[:240],
             }, process_path
         except Exception as exc:
             traceback.print_exc()
