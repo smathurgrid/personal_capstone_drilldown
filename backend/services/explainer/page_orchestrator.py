@@ -7,6 +7,9 @@ from backend.core.protocols import (
     ExplainerPageWorkflow,
     ImageGenerator,
 )
+from backend.services.explainer.pending_drill_store import discard as discard_pending_drill
+from backend.services.explainer.pending_drill_store import pop as pop_pending_drill
+from backend.services.explainer.pending_drill_store import stash as stash_pending_drill
 from backend.services.explainer.drill_context_resolver import DrillContextResolver
 from backend.services.explainer.grounding_service import GroundingService
 from backend.services.explainer.drill_workflow import (
@@ -44,6 +47,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         vision_model: str = "qwen3.5",
         grounding_mode: str = "sam2",
         custom_topic: str | None = None,
+        skip_confirm: bool = False,
     ):
         if query:
             page_id, output_path = self._pages.initial_page_paths(query)
@@ -64,6 +68,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 custom_topic,
                 coord_precision=self._DRILL_COORD_PRECISION,
                 include_custom_topic_in_hash=self._DRILL_INCLUDE_CUSTOM_TOPIC_IN_HASH,
+                skip_confirm=skip_confirm,
             )
 
         raise ValueError("Invalid parameters for page generation")
@@ -77,6 +82,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         vision_model: str = "qwen3.5",
         grounding_mode: str = "sam2",
         custom_topic: str | None = None,
+        skip_confirm: bool = False,
     ):
         if query:
             yield format_sse_event("generating", {"message": "Generating initial image..."})
@@ -115,6 +121,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         *,
         coord_precision: int,
         include_custom_topic_in_hash: bool,
+        skip_confirm: bool = False,
     ):
         page_id, output_path, metadata_path, parent_path, grounding, vision_result, crop_path = (
             await self._prepare_drill(
@@ -136,22 +143,17 @@ class PageOrchestrator(ExplainerPageWorkflow):
             return {"id": page_id, "imageUrl": self._pages.image_url(parent_id), **vision_result}
 
         drill_topic, metadata, input_prompt, raw_json = extract_vision_fields(vision_result)
-        result_metadata = build_result_metadata(
+        result_metadata = self._build_drill_metadata(
+            parent_id,
+            x,
+            y,
+            vision_model,
+            grounding_mode,
+            grounding,
             drill_topic,
             metadata,
             input_prompt,
             raw_json,
-            grounding.confidence,
-            grounding_mode,
-        )
-        result_metadata.update(
-            {
-                "parentId": parent_id,
-                "click": {"x": x, "y": y},
-                "visionModel": vision_model,
-                "groundingMode": grounding_mode,
-                "depth": self._parent_depth(parent_id) + 1,
-            }
         )
 
         return await self._drill_workflow.complete_drill(
@@ -206,6 +208,116 @@ class PageOrchestrator(ExplainerPageWorkflow):
         )
 
         drill_topic, metadata, input_prompt, raw_json = extract_vision_fields(vision_result)
+        result_metadata = self._build_drill_metadata(
+            parent_id,
+            x,
+            y,
+            vision_model,
+            grounding_mode,
+            grounding,
+            drill_topic,
+            metadata,
+            input_prompt,
+            raw_json,
+        )
+
+        crop_preview = vision_result.get("crop_preview_b64") or vision_result.get("local_crop_b64")
+        object_name = metadata.get("object") or metadata.get("editorial_headline") or "Selected region"
+
+        stash_pending_drill(
+            page_id,
+            {
+                "page_id": page_id,
+                "output_path": str(output_path),
+                "metadata_path": str(metadata_path),
+                "parent_path": str(parent_path),
+                "x": x,
+                "y": y,
+                "drill_topic": drill_topic,
+                "segment_path": grounding.segment_path,
+                "marked_path": grounding.marked_path,
+                "crop_path": crop_path,
+                "result_metadata": result_metadata,
+            },
+        )
+
+        yield format_sse_event(
+            "confirm",
+            {
+                "pageId": page_id,
+                "parentId": parent_id,
+                "click": {"x": x, "y": y},
+                "objectName": object_name,
+                "drillTopic": drill_topic,
+                "cropPreviewB64": crop_preview,
+                "metadata": metadata,
+                "samConfidence": grounding.confidence,
+                "groundingMode": grounding_mode,
+                "rawJson": raw_json,
+                "inputPrompt": input_prompt,
+            },
+        )
+
+    async def confirm_drill(self, page_id: str, drill_topic: str | None = None):
+        pending = pop_pending_drill(page_id)
+        if not pending:
+            raise ValueError("Drill session expired or not found")
+
+        topic = drill_topic or pending["drill_topic"]
+        result_metadata = dict(pending["result_metadata"])
+        result_metadata["context"] = topic
+        if drill_topic:
+            meta = dict(result_metadata.get("metadata", {}))
+            meta["drill_topic"] = drill_topic
+            result_metadata["metadata"] = meta
+
+        return await self._drill_workflow.complete_drill(
+            pending["page_id"],
+            pending["output_path"],
+            pending["metadata_path"],
+            topic,
+            pending["parent_path"],
+            pending["x"],
+            pending["y"],
+            pending.get("segment_path"),
+            pending.get("marked_path"),
+            pending.get("crop_path"),
+            result_metadata,
+        )
+
+    def cancel_drill(self, page_id: str) -> None:
+        discard_pending_drill(page_id)
+
+    def get_page(self, page_id: str) -> dict:
+        cached = self._pages.load_drill_cache(page_id)
+        if cached:
+            meta = cached.get("metadata", {})
+            if isinstance(meta, dict) and meta.get("editorial_headline"):
+                cached["metadata"] = meta
+            return cached
+        image_path = self._pages.page_image_path(page_id)
+        if not image_path.exists():
+            raise FileNotFoundError(f"Page not found: {page_id}")
+        return {
+            "id": page_id,
+            "imageUrl": self._pages.image_url(page_id),
+            "metadata": {},
+            "depth": 0,
+        }
+
+    def _build_drill_metadata(
+        self,
+        parent_id: str,
+        x: float,
+        y: float,
+        vision_model: str,
+        grounding_mode: str,
+        grounding,
+        drill_topic: str,
+        metadata: dict,
+        input_prompt: str,
+        raw_json: str,
+    ) -> dict:
         result_metadata = build_result_metadata(
             drill_topic,
             metadata,
@@ -223,33 +335,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 "depth": self._parent_depth(parent_id) + 1,
             }
         )
-
-        yield format_sse_event(
-            "generating",
-            {
-                "message": "Illustrating detail...",
-                "metadata": metadata,
-                "samConfidence": grounding.confidence,
-                "rawJson": raw_json,
-                "inputPrompt": input_prompt,
-            },
-        )
-        yield format_sse_event("generating_image", {"message": "Rendering next layer..."})
-
-        result = await self._drill_workflow.complete_drill(
-            page_id,
-            str(output_path),
-            str(metadata_path),
-            drill_topic,
-            str(parent_path),
-            x,
-            y,
-            grounding.segment_path,
-            grounding.marked_path,
-            crop_path,
-            result_metadata,
-        )
-        yield format_sse_event("complete", result)
+        return result_metadata
 
     async def _prepare_drill(
         self,

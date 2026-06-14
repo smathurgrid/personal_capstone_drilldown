@@ -7,7 +7,7 @@ from fastapi import HTTPException, UploadFile
 from PIL import Image
 
 from backend.core.protocols import ExplainerContextAnalysis, ExplainerPageStore, ExplainerPageWorkflow
-from backend.models.explainer import AnalyzeRequest, PageRequest
+from backend.models.explainer import AnalyzeRequest, ConfirmDrillRequest, PageRequest
 from backend.shared.config import settings
 from backend.shared.grounding_defaults import default_grounding_mode, sam2_available
 
@@ -54,7 +54,32 @@ async def handle_analyze(
     image_path = page_store.page_image_path(req.pageId)
     if not image_path.exists():
         raise HTTPException(status_code=404, detail="Image not found")
-    return await context_analyzer.analyze_page(str(image_path), model_key=req.visionModel or "qwen3.5")
+    return await context_analyzer.analyze_page(
+        str(image_path),
+        model_key=req.visionModel or "qwen3.5",
+        scan_mode=req.scanMode or "global",
+    )
+
+
+async def handle_get_stored_page(page_id: str, orchestrator: ExplainerPageWorkflow):
+    try:
+        return orchestrator.get_page(page_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+async def handle_confirm_drill(req: ConfirmDrillRequest, orchestrator: ExplainerPageWorkflow):
+    try:
+        return await orchestrator.confirm_drill(req.pageId, req.drillTopic)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def handle_cancel_drill(page_id: str, orchestrator: ExplainerPageWorkflow):
+    orchestrator.cancel_drill(page_id)
+    return {"ok": True}
 
 
 async def handle_get_page(req: PageRequest, orchestrator: ExplainerPageWorkflow):

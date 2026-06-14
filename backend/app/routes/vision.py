@@ -14,12 +14,36 @@ from backend.core.protocols import (
     ExplainerPageStore,
     ExplainerPageWorkflow,
 )
-from backend.models.explainer import AnalyzeRequest, PageRequest
+from backend.models.explainer import AnalyzeRequest, ConfirmDrillRequest, PageRequest
 from backend.shared.health import register_module_health
 
 router = APIRouter(tags=["explainer-vision"])
 
 register_module_health(router, vision_controller.get_vision_module_status)
+
+
+@router.get("/page/{page_id}")
+async def get_stored_page(
+    page_id: str,
+    orchestrator: ExplainerPageWorkflow = Depends(get_explainer_page_orchestrator),
+):
+    return await vision_controller.handle_get_stored_page(page_id, orchestrator)
+
+
+@router.post("/confirm-drill")
+async def confirm_drill(
+    req: ConfirmDrillRequest,
+    orchestrator: ExplainerPageWorkflow = Depends(get_explainer_page_orchestrator),
+):
+    return await vision_controller.handle_confirm_drill(req, orchestrator)
+
+
+@router.delete("/confirm-drill/{page_id}")
+async def cancel_drill(
+    page_id: str,
+    orchestrator: ExplainerPageWorkflow = Depends(get_explainer_page_orchestrator),
+):
+    return await vision_controller.handle_cancel_drill(page_id, orchestrator)
 
 
 @router.post("/stream-page")

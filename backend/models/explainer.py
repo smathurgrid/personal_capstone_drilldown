@@ -18,3 +18,9 @@ class PageRequest(BaseModel):
 class AnalyzeRequest(BaseModel):
     pageId: str
     visionModel: Optional[str] = "qwen3.5"
+    scanMode: Optional[str] = "global"
+
+
+class ConfirmDrillRequest(BaseModel):
+    pageId: str
+    drillTopic: Optional[str] = None
