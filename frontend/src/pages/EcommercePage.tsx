@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Home } from "lucide-react";
 import { drillProduct, identifyItem, type DrillNode } from "../services/ecommerce-api";
-import { resolveUrl } from "../../services/api";
+import { resolveUrl } from "../services/api";
 import OutfitCanvas from "./ecommerce/OutfitCanvas";
 import DrillHistory from "./ecommerce/DrillHistory";
 import ProductDrawer from "./ecommerce/ProductDrawer";

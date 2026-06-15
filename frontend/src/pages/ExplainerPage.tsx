@@ -512,7 +512,7 @@ export default function ExplainerPage() {
         )}
       </section>
 
-      {pendingDrill && phase === "confirm" && (
+      {pendingDrill && (phase === "confirm" || phase === "generating") && (
         <DrillConfirmModal
           pending={pendingDrill}
           busy={phase === "generating"}

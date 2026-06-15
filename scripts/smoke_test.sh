@@ -33,18 +33,40 @@ UPLOAD_JSON=$(curl -sf -X POST "$BASE/api/explainer/vision/upload" -F "file=@$TM
 PAGE_ID=$(echo "$UPLOAD_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
 echo "  page_id=$PAGE_ID"
 
-echo "[7/7] Vision drill stream (visionModel=none, red_ring)..."
-curl -sf -N -X POST "$BASE/api/explainer/vision/stream-page" \
+echo "[7/8] Vision drill stream (visionModel=none, red_ring) → confirm..."
+STREAM_OUT=$(curl -sf -N -X POST "$BASE/api/explainer/vision/stream-page" \
   -H "Content-Type: application/json" \
-  -d "{\"parentId\":\"$PAGE_ID\",\"x\":0.5,\"y\":0.5,\"visionModel\":\"none\",\"groundingMode\":\"red_ring\"}" \
-  | python3 -c "
-import sys
+  -d "{\"parentId\":\"$PAGE_ID\",\"x\":0.5,\"y\":0.5,\"visionModel\":\"none\",\"groundingMode\":\"red_ring\"}")
+echo "$STREAM_OUT" | python3 -c "
+import sys, re
 text = sys.stdin.read()
-assert 'event: complete' in text or 'event: error' in text, text[:500]
-if 'event: error' in text and 'event: complete' not in text:
+assert 'event: confirm' in text or 'event: complete' in text or 'event: error' in text, text[:500]
+if 'event: error' in text and 'event: confirm' not in text and 'event: complete' not in text:
     raise SystemExit('stream-page returned error: ' + text[:300])
 print('  stream events OK')
 "
+
+DRILL_PAGE_ID=$(echo "$STREAM_OUT" | python3 -c "
+import sys, re, json
+text = sys.stdin.read()
+if 'event: complete' in text:
+    print('')
+    sys.exit(0)
+m = re.search(r'event: confirm\\ndata: (.+)', text)
+if not m:
+    raise SystemExit('no confirm event: ' + text[:300])
+print(json.loads(m.group(1))['pageId'])
+")
+
+if [ -n "$DRILL_PAGE_ID" ]; then
+  echo "[8/8] Confirm drill ($DRILL_PAGE_ID)..."
+  curl -sf -X POST "$BASE/api/explainer/vision/confirm-drill" \
+    -H "Content-Type: application/json" \
+    -d "{\"pageId\":\"$DRILL_PAGE_ID\"}" \
+    | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('id'), d; print('  drill page', d['id'])"
+else
+  echo "[8/8] Skipped confirm (cache hit returned complete)"
+fi
 
 rm -f "$TMP"
 echo ""

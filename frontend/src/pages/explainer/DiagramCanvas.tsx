@@ -129,7 +129,9 @@ export default function DiagramCanvas({
             {positionedDetails.map((detail, idx) => {
               const { isLeft, indexInCol } = getColumnData(positionedDetails, idx);
               const labelY = getDistributedY(positionedDetails, idx);
-              const [px, py] = detail.point;
+              const point = detail.point as [number, number];
+              const px = point[0];
+              const py = point[1];
               const { x: x2, y: y2 } = toDisplay(px, py);
               const staggerX = [12, 60, 110][indexInCol % 3];
               const x1 = isLeft ? -staggerX : dims.width + staggerX;
@@ -163,8 +165,10 @@ export default function DiagramCanvas({
             const { isLeft, indexInCol } = getColumnData(details, idx);
             const labelY = getDistributedY(details, idx);
             const staggerX = [12, 60, 110][indexInCol % 3];
-            const uncertain = detail.positionUncertain || !detail.point || detail.point.length < 2;
-            const [lx, ly] = uncertain ? [0.5, 0.5] : detail.point;
+            const point = detail.point;
+            const uncertain = detail.positionUncertain || !point || point.length < 2;
+            const lx = uncertain ? 0.5 : point[0];
+            const ly = uncertain ? 0.5 : point[1];
             return (
               <button
                 key={`card-${detail.label}-${idx}`}

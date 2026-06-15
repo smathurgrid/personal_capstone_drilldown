@@ -51,7 +51,7 @@ export async function pickNextRegion(imageB64: string): Promise<{
   y: number;
   label?: string;
 }> {
-  const res = await fetch(`${TOOLS}/pick_next_region`, {
+  const res = await fetch(`${TOOLS}/pick-next-region`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ image_b64: imageB64 }),

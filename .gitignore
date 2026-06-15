@@ -4,6 +4,8 @@ node_modules/
 venv/
 env/
 
+
+
 # Build artifacts
 dist/
 build/
@@ -41,9 +43,13 @@ logs/
 graphify-out/
 repo_tree.txt
 docst/*
+temp-docs-pi/*
+
 # Docs build
 docs/_build/
 docs/.doctrees/
+
+docst/*
 
 # Data (keep directory structure via .gitkeep)
 data/qdrant_storage/*
