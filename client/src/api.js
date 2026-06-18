@@ -1,4 +1,5 @@
-const API_BASE = "http://localhost:8000/api";
+const BACKEND_BASE = import.meta.env.VITE_BACKEND_BASE || "http://localhost:8000";
+const API_BASE = `${BACKEND_BASE}/api`;
 
 export const streamPage = async (params, onEvent) => {
   const response = await fetch(`${API_BASE}/stream-page`, {
@@ -66,10 +67,16 @@ export const getPage = async (params) => {
     throw new Error("Failed to fetch page");
   }
   
-  const data = await response.ok ? await response.json() : {};
+  const data = await response.json();
   // Handle relative URLs from backend
   if (data.imageUrl && data.imageUrl.startsWith("/static")) {
-    data.imageUrl = `http://localhost:8000${data.imageUrl}`;
+    data.imageUrl = `${BACKEND_BASE}${data.imageUrl}`;
+  }
+  if (data.depthUrl && data.depthUrl.startsWith("/static")) {
+    data.depthUrl = `${BACKEND_BASE}${data.depthUrl}`;
+  }
+  if (data.videoUrl && data.videoUrl.startsWith("/static")) {
+    data.videoUrl = `${BACKEND_BASE}${data.videoUrl}`;
   }
   return data;
 };
@@ -105,7 +112,36 @@ export const uploadImage = async (file) => {
 
   const data = await response.json();
   if (data.imageUrl && data.imageUrl.startsWith("/static")) {
-    data.imageUrl = `http://localhost:8000${data.imageUrl}`;
+    data.imageUrl = `${BACKEND_BASE}${data.imageUrl}`;
+  }
+  if (data.depthUrl && data.depthUrl.startsWith("/static")) {
+    data.depthUrl = `${BACKEND_BASE}${data.depthUrl}`;
+  }
+  return data;
+};
+
+export const uploadPdf = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_BASE}/upload-pdf`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to upload PDF");
+  }
+
+  const data = await response.json();
+  // Adjust URLs for all extracted pages
+  if (data.pages && Array.isArray(data.pages)) {
+    data.pages = data.pages.map(page => {
+      if (page.imageUrl && page.imageUrl.startsWith("/static")) {
+        page.imageUrl = `${BACKEND_BASE}${page.imageUrl}`;
+      }
+      return page;
+    });
   }
   return data;
 };

@@ -15,12 +15,16 @@ app = FastAPI(title="DrillDown API")
 async def debug_exception_handler(request: Request, exc: Exception):
     print(f"ERROR: {exc}")
     traceback.print_exc()
-    return {"error": str(exc), "traceback": traceback.format_exc()}
+    is_debug = os.getenv("ENV", "development").lower() != "production"
+    response_data = {"error": str(exc)}
+    if is_debug:
+        response_data["traceback"] = traceback.format_exc()
+    return response_data
 
-# Enable CORS
+# Enable CORS (secure dynamic localhost origins while maintaining credentials)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex="https?://localhost(:[0-9]+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

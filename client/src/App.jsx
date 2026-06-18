@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { getPage, uploadImage, streamPage, analyzePage } from './api';
+import { getPage, uploadImage, streamPage, analyzePage, uploadPdf } from './api';
 import './index.css';
+import FlipbookPlayer from './components/FlipbookPlayer';
+
+const BACKEND_BASE = import.meta.env.VITE_BACKEND_BASE || "http://localhost:8000";
 
 function App() {
   const [topic, setTopic] = useState('');
@@ -9,14 +12,30 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [analyzingId, setAnalyzingId] = useState(null);
   const [ripple, setRipple] = useState(null);
-  const [visionModel, setVisionModel] = useState('qwen3.5');
+  const [visionModel, setVisionModel] = useState('gemini');
   const [groundingMode, setGroundingMode] = useState('red_ring');
   const [compareMode, setCompareMode] = useState(false); // New state for side-by-side comparison
   const [activeTab, setActiveTab] = useState('detected');
   const [layoutMode, setLayoutMode] = useState('diagram');
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
+  
+  // PDF Tech Explorer States & Refs
+  const [pdfDoc, setPdfDoc] = useState(null);
+  const [pdfPageIndex, setPdfPageIndex] = useState(0);
+  const [isBookMode, setIsBookMode] = useState(false);
+  const pdfInputRef = useRef(null);
+  const [actionMenu, setActionMenu] = useState(null); // { x, y, clientX, clientY, customTopic }
+
+  useEffect(() => {
+    if (pages[currentIndex]?.videoUrl) {
+      setIsVideoPlaying(true);
+    } else {
+      setIsVideoPlaying(false);
+    }
+  }, [currentIndex, pages]);
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -55,12 +74,21 @@ function App() {
               const lastIdx = current.length - 1;
               const page = current[lastIdx];
               
-              console.log('SSE EVENT:', eventType, eventData); console.log('SSE EVENT 2:', eventType, eventData); if (eventType === 'complete') {
+              console.log('SSE EVENT:', eventType, eventData);
+              if (eventType === 'complete') {
                   let finalImageUrl = eventData.imageUrl;
                   if (finalImageUrl && finalImageUrl.startsWith('/static')) {
-                      finalImageUrl = `http://localhost:8000${finalImageUrl}`;
+                      finalImageUrl = `${BACKEND_BASE}${finalImageUrl}`;
                   }
-                  current[lastIdx] = { ...eventData, imageUrl: finalImageUrl, isStreaming: false };
+                  let finalDepthUrl = eventData.depthUrl;
+                  if (finalDepthUrl && finalDepthUrl.startsWith('/static')) {
+                      finalDepthUrl = `${BACKEND_BASE}${finalDepthUrl}`;
+                  }
+                  let finalVideoUrl = eventData.videoUrl;
+                  if (finalVideoUrl && finalVideoUrl.startsWith('/static')) {
+                      finalVideoUrl = `${BACKEND_BASE}${finalVideoUrl}`;
+                  }
+                  current[lastIdx] = { ...eventData, imageUrl: finalImageUrl, depthUrl: finalDepthUrl, videoUrl: finalVideoUrl, isStreaming: false };
                   setIsLoading(false); 
                   
                   // Trigger auto-analysis on new generation
@@ -107,6 +135,75 @@ function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handlePdfUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsLoading(true);
+    try {
+      const data = await uploadPdf(file);
+      console.log("PDF UPLOAD DATA:", data);
+      setPdfDoc(data);
+      setPdfPageIndex(0);
+      setIsBookMode(true);
+      
+      if (data.pages && data.pages.length > 0) {
+        const firstPage = data.pages[0];
+        const pageItem = {
+          id: firstPage.pageId,
+          imageUrl: firstPage.imageUrl,
+          isPdfPage: true,
+          page_num: 1,
+          metadata: {},
+          inputPrompt: `PDF Page 1 - ${data.filename}`
+        };
+        setPages([pageItem]);
+        setCurrentIndex(0);
+        setLayoutMode("diagram");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error uploading PDF manual");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePdfPageChange = (newPageIndex) => {
+    if (!pdfDoc || newPageIndex < 0 || newPageIndex >= pdfDoc.pages.length) return;
+    setPdfPageIndex(newPageIndex);
+    
+    const activePageData = pdfDoc.pages[newPageIndex];
+    setPages(prev => {
+      const updated = [...prev];
+      updated[0] = {
+        id: activePageData.pageId,
+        imageUrl: activePageData.imageUrl,
+        isPdfPage: true,
+        page_num: activePageData.page_num,
+        metadata: updated[0]?.metadata?.id === activePageData.pageId ? updated[0].metadata : {},
+        inputPrompt: `PDF Page ${activePageData.page_num} - ${pdfDoc.filename}`
+      };
+      return updated;
+    });
+    setCurrentIndex(0);
+  };
+
+  const handlePageClick = (e, pageData, pageIndex) => {
+    if (isLoading || pages[currentIndex]?.isStreaming) return;
+    
+    handlePdfPageChange(pageIndex);
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    
+    setRipple({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    setTimeout(() => setRipple(null), 600);
+    
+    triggerDrillDown(x, y);
   };
 
   const handleAutoAnalyze = async (specificPage = null) => {
@@ -172,17 +269,18 @@ function App() {
     return startY + (indexInCol * (endY - startY) / (total - 1));
   };
 
-  const triggerDrillDown = async (x, y, customTopic = null) => {
-    console.log(`DRILL DOWN INITIATED: x=${x}, y=${y}, custom=${customTopic}`);
+  const triggerDrillDown = async (x, y, customTopic = null, drillMode = 'inside') => {
+    console.log(`DRILL DOWN INITIATED: x=${x}, y=${y}, custom=${customTopic}, mode=${drillMode}`);
     if (isLoading || currentIndex === -1 || pages[currentIndex]?.isStreaming) return;
 
+    setIsBookMode(false);
     const parentPage = pages[currentIndex];
     setIsLoading(true);
     
     try {
       let newData;
       if (compareMode && visionModel !== 'all' && visionModel !== 'none') {
-        const noVisionResult = await getPage({ parentId: parentPage.id, x, y, visionModel: 'none', groundingMode });
+        const noVisionResult = await getPage({ parentId: parentPage.id, x, y, visionModel: 'none', groundingMode, drillMode });
         
         newData = {
           id: `compare_${noVisionResult.id}_partial`,
@@ -198,7 +296,7 @@ function App() {
         setPages(updatedPartialPages);
         setCurrentIndex(updatedPartialPages.length - 1);
 
-        const visionResult = await getPage({ parentId: parentPage.id, x, y, visionModel, groundingMode });
+        const visionResult = await getPage({ parentId: parentPage.id, x, y, visionModel, groundingMode, drillMode });
         
         const finalData = {
           id: `compare_${visionResult.id}_complete`,
@@ -236,7 +334,8 @@ function App() {
             y,
             customTopic,
             visionModel,
-            groundingMode
+            groundingMode,
+            drillMode
         }, (eventType, eventData) => {
             setPages(prevPages => {
                 const current = [...prevPages];
@@ -246,9 +345,17 @@ function App() {
                 if (eventType === 'complete') {
                     let finalImageUrl = eventData.imageUrl;
                     if (finalImageUrl && finalImageUrl.startsWith('/static')) {
-                        finalImageUrl = `http://localhost:8000${finalImageUrl}`;
+                        finalImageUrl = `${BACKEND_BASE}${finalImageUrl}`;
                     }
-                    current[lastIdx] = { ...eventData, imageUrl: finalImageUrl, isStreaming: false };
+                    let finalDepthUrl = eventData.depthUrl;
+                    if (finalDepthUrl && finalDepthUrl.startsWith('/static')) {
+                        finalDepthUrl = `${BACKEND_BASE}${finalDepthUrl}`;
+                    }
+                    let finalVideoUrl = eventData.videoUrl;
+                    if (finalVideoUrl && finalVideoUrl.startsWith('/static')) {
+                        finalVideoUrl = `${BACKEND_BASE}${finalVideoUrl}`;
+                    }
+                    current[lastIdx] = { ...eventData, imageUrl: finalImageUrl, depthUrl: finalDepthUrl, videoUrl: finalVideoUrl, isStreaming: false };
                     if (eventData.id) {
                       handleAutoAnalyze({ id: eventData.id });
                     }
@@ -289,10 +396,12 @@ function App() {
     const y = (e.clientY - rect.top) / rect.height;
     
     // Immediate visual feedback
-    setRipple({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+    setRipple({ x: clickX, y: clickY });
     setTimeout(() => setRipple(null), 600);
     
-    triggerDrillDown(x, y);
+    setActionMenu({ x, y, clientX: clickX, clientY: clickY, customTopic: null });
   };
 
   const handleLabelClick = (e, detail) => {
@@ -302,11 +411,112 @@ function App() {
       
       // Immediate visual feedback at the point the label is describing
       const rect = canvasRef.current.getBoundingClientRect();
-      setRipple({ x: x * rect.width, y: y * rect.height });
+      const clickX = x * rect.width;
+      const clickY = y * rect.height;
+      setRipple({ x: clickX, y: clickY });
       setTimeout(() => setRipple(null), 600);
       
-      triggerDrillDown(x, y, detail.label);
+      setActionMenu({ x, y, clientX: clickX, clientY: clickY, customTopic: detail.label });
     }
+  };
+
+  const renderActionMenu = () => {
+    if (!actionMenu) return null;
+    return (
+      <div 
+        style={{
+          position: 'absolute',
+          left: `${actionMenu.clientX}px`,
+          top: `${actionMenu.clientY}px`,
+          transform: 'translate(-50%, -100%) translateY(-10px)', // Centered above the click
+          background: '#0a1628', // Rich Navy
+          border: '1px solid rgba(237,106,44,0.8)', // Orange highlight border
+          borderRadius: '8px',
+          padding: '8px 0',
+          zIndex: 1000,
+          boxShadow: '0 10px 25px -5px rgba(0,0,0,0.8), 0 8px 10px -6px rgba(0,0,0,0.8)',
+          display: 'flex',
+          flexDirection: 'column',
+          minWidth: '220px',
+          pointerEvents: 'auto' // Make sure click works
+        }}
+        onClick={(e) => e.stopPropagation()} // Prevent clicking the menu from firing the canvas click again!
+      >
+        <div style={{ padding: '4px 16px 8px 16px', fontSize: '10px', color: 'var(--orange)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: '4px' }}>
+          Select Action {actionMenu.customTopic ? `for ${actionMenu.customTopic.slice(0, 15)}...` : ''}
+        </div>
+        <button
+          onClick={() => {
+            triggerDrillDown(actionMenu.x, actionMenu.y, actionMenu.customTopic, 'inside');
+            setActionMenu(null);
+          }}
+          style={{
+            background: 'transparent',
+            color: 'var(--white)',
+            border: 'none',
+            padding: '10px 16px',
+            textAlign: 'left',
+            fontSize: '13px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            width: '100%',
+            fontWeight: '600',
+            transition: 'background 0.2s'
+          }}
+          onMouseEnter={(e) => e.target.style.background = 'rgba(237,106,44,0.1)'}
+          onMouseLeave={(e) => e.target.style.background = 'transparent'}
+        >
+          <span>🔍</span> Drill Down (Inside Detail)
+        </button>
+        <button
+          onClick={() => {
+            triggerDrillDown(actionMenu.x, actionMenu.y, actionMenu.customTopic, 'pov');
+            setActionMenu(null);
+          }}
+          style={{
+            background: 'transparent',
+            color: 'var(--white)',
+            border: 'none',
+            padding: '10px 16px',
+            textAlign: 'left',
+            fontSize: '13px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            width: '100%',
+            fontWeight: '600',
+            transition: 'background 0.2s'
+          }}
+          onMouseEnter={(e) => e.target.style.background = 'rgba(237,106,44,0.1)'}
+          onMouseLeave={(e) => e.target.style.background = 'transparent'}
+        >
+          <span>👀</span> View POV (Perspective)
+        </button>
+        <button
+          onClick={() => setActionMenu(null)}
+          style={{
+            background: 'transparent',
+            color: 'var(--gray-400)',
+            border: 'none',
+            padding: '8px 16px',
+            textAlign: 'left',
+            fontSize: '12px',
+            cursor: 'pointer',
+            marginTop: '4px',
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+            paddingTop: '8px',
+            width: '100%'
+          }}
+          onMouseEnter={(e) => e.target.style.color = 'var(--white)'}
+          onMouseLeave={(e) => e.target.style.color = 'var(--gray-400)'}
+        >
+          Cancel
+        </button>
+      </div>
+    );
   };
 
   const currentPage = pages[currentIndex];
@@ -375,6 +585,28 @@ function App() {
         <div className="mag-logo">DRILL<span>DOWN</span></div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           
+          {pdfDoc && !isBookMode && (
+            <button
+              onClick={() => {
+                setIsBookMode(true);
+                setCurrentIndex(0);
+              }}
+              style={{
+                background: 'var(--orange)',
+                color: 'var(--white)',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                boxShadow: '0 4px 10px rgba(237, 106, 44, 0.3)',
+                marginRight: '10px'
+              }}
+            >
+              📖 Back to PDF Manual
+            </button>
+          )}
           
           <select 
             value={layoutMode} 
@@ -506,8 +738,9 @@ function App() {
               />
               <button type="submit" disabled={isLoading}>{isLoading ? "Loading..." : "Generate"}</button>
             </form>
-            <div style={{ marginTop: '20px' }}>
-              <p style={{ color: 'var(--gray-600)', margin: '10px 0' }}>or</p>
+            <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+              <p style={{ color: 'var(--gray-600)', margin: '4px 0' }}>or</p>
+              
               <input 
                 type="file" 
                 ref={fileInputRef} 
@@ -515,24 +748,202 @@ function App() {
                 onChange={handleFileUpload}
                 accept="image/*"
               />
-              <button 
-                onClick={() => fileInputRef.current.click()}
-                style={{ 
-                  background: 'var(--navy-light)', 
-                  color: 'var(--white)', 
-                  border: '1px solid var(--orange)', 
-                  padding: '12px 32px', 
-                  borderRadius: '8px', 
-                  cursor: 'pointer' 
-                }}
-              >
-                {isLoading ? "Uploading..." : "Upload Image"}
-              </button>
+              <input 
+                type="file" 
+                ref={pdfInputRef} 
+                style={{ display: 'none' }} 
+                onChange={handlePdfUpload}
+                accept=".pdf"
+              />
+              
+              <div style={{ display: 'flex', gap: '16px' }}>
+                <button 
+                  onClick={() => fileInputRef.current.click()}
+                  style={{ 
+                    background: 'var(--navy-light)', 
+                    color: 'var(--white)', 
+                    border: '1px solid var(--orange)', 
+                    padding: '12px 24px', 
+                    borderRadius: '8px', 
+                    cursor: 'pointer',
+                    fontWeight: '600'
+                  }}
+                >
+                  {isLoading && !pdfDoc ? "Uploading..." : "Upload Image"}
+                </button>
+                
+                <button 
+                  onClick={() => pdfInputRef.current.click()}
+                  style={{ 
+                    background: 'var(--orange)', 
+                    color: 'var(--white)', 
+                    border: 'none', 
+                    padding: '12px 24px', 
+                    borderRadius: '8px', 
+                    cursor: 'pointer',
+                    fontWeight: '600',
+                    boxShadow: '0 4px 12px rgba(237, 106, 44, 0.3)'
+                  }}
+                >
+                  {isLoading && pdfDoc ? "Ingesting PDF..." : "Upload PDF Manual"}
+                </button>
+              </div>
             </div>
           </div>
         ) : (
           <div style={{ width: '100%', maxWidth: '1400px', margin: '0 auto' }}>
-            {currentPage?.isSideBySide ? (
+            {isBookMode && pdfDoc ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', gap: '24px' }}>
+                {/* Book Header / Title */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: '1100px' }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '24px', fontFamily: 'Playfair Display', color: 'var(--white)' }}>
+                      📖 {pdfDoc.filename}
+                    </h2>
+                    <p style={{ margin: '4px 0 0 0', color: 'var(--gray-400)', fontSize: '14px' }}>
+                      Click on any diagram, part, or text to study its visual deep-dive.
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setIsBookMode(false);
+                      setCurrentIndex(pages.length - 1);
+                    }}
+                    style={{
+                      background: 'var(--navy-light)',
+                      border: '1px solid var(--orange)',
+                      color: 'var(--white)',
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '600'
+                    }}
+                  >
+                    Close Manual
+                  </button>
+                </div>
+
+                {/* Side-by-Side Pages */}
+                <div style={{ 
+                  display: 'flex', 
+                  gap: '32px', 
+                  justifyContent: 'center', 
+                  width: '100%', 
+                  maxWidth: '1100px',
+                  background: 'var(--navy-light)',
+                  padding: '32px',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(237, 106, 44, 0.1)',
+                  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.4)'
+                }}>
+                  {/* Left Page */}
+                  {pdfDoc.pages[pdfPageIndex] && (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <div 
+                        className="canvas-wrapper" 
+                        onClick={(e) => handlePageClick(e, pdfDoc.pages[pdfPageIndex], pdfPageIndex)}
+                        style={{ 
+                          margin: 0, 
+                          width: '100%', 
+                          boxShadow: '5px 5px 15px rgba(0,0,0,0.5)', 
+                          borderRadius: '8px',
+                          overflow: 'hidden',
+                          border: '1px solid rgba(255,255,255,0.05)',
+                          cursor: 'crosshair',
+                          position: 'relative'
+                        }}
+                      >
+                        <img 
+                          src={pdfDoc.pages[pdfPageIndex].imageUrl} 
+                          alt={`Page ${pdfPageIndex + 1}`} 
+                          style={{ width: '100%', display: 'block', pointerEvents: 'none' }}
+                        />
+                        <div style={{ position: 'absolute', bottom: '12px', right: '12px', background: 'rgba(0,0,0,0.6)', padding: '4px 10px', borderRadius: '4px', fontSize: '12px', color: 'var(--white)' }}>
+                          p. {pdfDoc.pages[pdfPageIndex].page_num}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Right Page */}
+                  {pdfDoc.pages[pdfPageIndex + 1] ? (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <div 
+                        className="canvas-wrapper" 
+                        onClick={(e) => handlePageClick(e, pdfDoc.pages[pdfPageIndex + 1], pdfPageIndex + 1)}
+                        style={{ 
+                          margin: 0, 
+                          width: '100%', 
+                          boxShadow: '-5px 5px 15px rgba(0,0,0,0.5)', 
+                          borderRadius: '8px',
+                          overflow: 'hidden',
+                          border: '1px solid rgba(255,255,255,0.05)',
+                          cursor: 'crosshair',
+                          position: 'relative'
+                        }}
+                      >
+                        <img 
+                          src={pdfDoc.pages[pdfPageIndex + 1].imageUrl} 
+                          alt={`Page ${pdfPageIndex + 2}`} 
+                          style={{ width: '100%', display: 'block', pointerEvents: 'none' }}
+                        />
+                        <div style={{ position: 'absolute', bottom: '12px', left: '12px', background: 'rgba(0,0,0,0.6)', padding: '4px 10px', borderRadius: '4px', fontSize: '12px', color: 'var(--white)' }}>
+                          p. {pdfDoc.pages[pdfPageIndex + 1].page_num}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ 
+                      flex: 1, 
+                      aspectRatio: '1/1.3', 
+                      background: 'rgba(0,0,0,0.2)', 
+                      borderRadius: '8px', 
+                      border: '2px dashed rgba(255,255,255,0.05)' 
+                    }} />
+                  )}
+                </div>
+
+                {/* Controls */}
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                  <button 
+                    onClick={() => handlePdfPageChange(pdfPageIndex - 2)}
+                    disabled={pdfPageIndex <= 0}
+                    style={{
+                      background: pdfPageIndex <= 0 ? 'var(--gray-700)' : 'var(--orange)',
+                      color: 'var(--white)',
+                      border: 'none',
+                      padding: '10px 20px',
+                      borderRadius: '6px',
+                      cursor: pdfPageIndex <= 0 ? 'not-allowed' : 'pointer',
+                      fontWeight: 'bold',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    ◀ Previous Page
+                  </button>
+                  <span style={{ color: 'var(--gray-300)', fontWeight: '600' }}>
+                    Pages {pdfPageIndex + 1} - {Math.min(pdfPageIndex + 2, pdfDoc.pageCount)} of {pdfDoc.pageCount}
+                  </span>
+                  <button 
+                    onClick={() => handlePdfPageChange(pdfPageIndex + 2)}
+                    disabled={pdfPageIndex + 2 >= pdfDoc.pages.length}
+                    style={{
+                      background: pdfPageIndex + 2 >= pdfDoc.pages.length ? 'var(--gray-700)' : 'var(--orange)',
+                      color: 'var(--white)',
+                      border: 'none',
+                      padding: '10px 20px',
+                      borderRadius: '6px',
+                      cursor: pdfPageIndex + 2 >= pdfDoc.pages.length ? 'not-allowed' : 'pointer',
+                      fontWeight: 'bold',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Next Page ▶
+                  </button>
+                </div>
+              </div>
+            ) : currentPage?.isSideBySide ? (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', width: '100%' }}>
                 
                 {/* No Vision Results (Always renders first now) */}
@@ -568,10 +979,20 @@ function App() {
 
               <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '0 260px' }}>
                 <div className="canvas-wrapper" style={{ margin: 0, position: 'relative', width: '100%', maxWidth: '700px' }} ref={canvasRef} onClick={handleCanvasClick}>
-                  {currentPage.imageUrl ? <img src={currentPage.imageUrl} className="canvas-image" alt="Drill down visualization" style={{ display: 'block', width: '100%', aspectRatio: '16/9', borderRadius: '12px', zIndex: 1, position: 'relative', opacity: currentPage.isStreaming ? 0.6 : 1 }} /> : <div style={{ width: "100%", aspectRatio: "16/9", background: "transparent" }} />}
+                  {currentPage.imageUrl ? (
+                    <FlipbookPlayer 
+                      imageUrl={currentPage.imageUrl} 
+                      videoUrl={currentPage.videoUrl} 
+                      onVideoEnded={() => setIsVideoPlaying(false)} 
+                      className="canvas-image" 
+                      style={{ display: 'block', width: '100%', aspectRatio: '16/9', borderRadius: '12px', zIndex: 1, position: 'relative', opacity: currentPage.isStreaming ? 0.6 : 1 }} 
+                    />
+                  ) : (
+                    <div style={{ width: "100%", aspectRatio: "16/9", background: "transparent" }} />
+                  )}
                   
-                  {/* SVG Layer for Arrows - Hide during analysis */}
-                  {currentPage && !currentPage.isStreaming && analyzingId !== currentPage.id && Array.isArray(currentPage.metadata?.granular_details) && currentPage.metadata.granular_details.length > 0 && (
+                  {/* SVG Layer for Arrows - Hide during analysis or video playback */}
+                  {currentPage && !currentPage.isStreaming && analyzingId !== currentPage.id && !isVideoPlaying && Array.isArray(currentPage.metadata?.granular_details) && currentPage.metadata.granular_details.length > 0 && (
                     <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 10, overflow: 'visible' }}>
                       <defs>
                         <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
@@ -617,8 +1038,8 @@ function App() {
                     </svg>
                   )}
 
-                  {/* Floating Labels Outside Image - Hide during analysis */}
-                  {currentPage && !currentPage.isStreaming && analyzingId !== currentPage.id && Array.isArray(currentPage.metadata?.granular_details) && currentPage.metadata.granular_details.length > 0 && (
+                  {/* Floating Labels Outside Image - Hide during analysis or video playback */}
+                  {currentPage && !currentPage.isStreaming && analyzingId !== currentPage.id && !isVideoPlaying && Array.isArray(currentPage.metadata?.granular_details) && currentPage.metadata.granular_details.length > 0 && (
                     <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 11 }}>
                       {currentPage.metadata.granular_details.map((detail, idx) => {
                         if (!detail.point || detail.point.length !== 2) return null;
@@ -679,10 +1100,11 @@ function App() {
                       <div className="target-crosshair" style={{ left: `${currentPage.lastClick.x * 100}%`, top: `${currentPage.lastClick.y * 100}%`, zIndex: 19 }} />
                     </>
                   )}
-                  {currentPage?.lastClick && !currentPage?.isStreaming && (
+                  {currentPage?.lastClick && !currentPage?.isStreaming && !isVideoPlaying && (
                     <div className="red-ring" style={{ left: `${currentPage.lastClick.x * 100}%`, top: `${currentPage.lastClick.y * 100}%`, zIndex: 2 }} />
                   )}
-                  {ripple && <div className="ripple" style={{ left: ripple.x, top: ripple.y, zIndex: 3 }} />}
+                  {ripple && !isVideoPlaying && <div className="ripple" style={{ left: ripple.x, top: ripple.y, zIndex: 3 }} />}
+                  {renderActionMenu()}
                   {currentPage?.isStreaming && (
                     <div className="loading-overlay" style={{ background: 'rgba(10, 22, 40, 0.5)', zIndex: 25 }}>
                       <div className="spinner"></div>
@@ -699,9 +1121,19 @@ function App() {
             ) : layoutMode === 'standard' ? (
               <div style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
                 <div className="canvas-wrapper" ref={canvasRef} onClick={handleCanvasClick}>
-                  {currentPage.imageUrl ? <img src={currentPage.imageUrl} className="canvas-image" alt="Drill down visualization" /> : <div style={{ width: "100%", aspectRatio: "16/9", background: "transparent" }} /> }
-                  {currentPage?.lastClick && <div className="red-ring" style={{ left: `${currentPage.lastClick.x * 100}%`, top: `${currentPage.lastClick.y * 100}%` }} />}
+                  {currentPage.imageUrl ? (
+                    <FlipbookPlayer 
+                      imageUrl={currentPage.imageUrl} 
+                      videoUrl={currentPage.videoUrl} 
+                      onVideoEnded={() => setIsVideoPlaying(false)} 
+                      className="canvas-image" 
+                    />
+                  ) : (
+                    <div style={{ width: "100%", aspectRatio: "16/9", background: "transparent" }} />
+                  )}
+                  {currentPage?.lastClick && !isVideoPlaying && <div className="red-ring" style={{ left: `${currentPage.lastClick.x * 100}%`, top: `${currentPage.lastClick.y * 100}%` }} />}
                   {ripple && <div className="ripple" style={{ left: ripple.x, top: ripple.y }} />}
+                  {renderActionMenu()}
                   {currentPage?.isStreaming && (
                     <div className="loading-overlay" style={{ background: 'rgba(10, 22, 40, 0.7)' }}>
                       <div className="spinner"></div>
@@ -721,7 +1153,7 @@ function App() {
                     <div style={{ display: 'flex', background: 'rgba(10,22,40,0.5)', borderBottom: '1px solid rgba(237,106,44,0.2)' }}>
                       {['detected', 'prompt', 'raw'].map(tab => (
                         <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '12px 24px', background: activeTab === tab ? 'rgba(237,106,44,0.1)' : 'transparent', color: activeTab === tab ? 'var(--orange)' : 'var(--gray-400)', border: 'none', borderBottom: activeTab === tab ? '2px solid var(--orange)' : '2px solid transparent', cursor: 'pointer', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                          {tab === 'detected' ? 'Detected Context' : 'Raw JSON Output'}
+                          {tab === 'detected' ? 'Detected Context' : tab === 'prompt' ? 'Generation Prompt' : 'Raw JSON Output'}
                         </button>
                       ))}
                     </div>
@@ -732,16 +1164,26 @@ function App() {
                           <div>
                             <div style={{ fontSize: '10px', color: 'var(--orange)', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '8px' }}>Analysis ({currentPage.groundingMode === 'sam2' ? 'SAM2 Cutout' : 'Red Marker'})</div>
                             <h2 style={{ fontSize: '24px', fontFamily: 'Playfair Display', marginBottom: '12px', color: 'var(--white)' }}>
-                              {currentPage.metadata.editorial_headline || currentPage.metadata.object}
+                              {typeof currentPage.metadata.editorial_headline === 'object' ? 
+                                (currentPage.metadata.editorial_headline.text || currentPage.metadata.editorial_headline.headline || JSON.stringify(currentPage.metadata.editorial_headline)) : 
+                                (currentPage.metadata.editorial_headline || currentPage.metadata.object)}
                             </h2>
                             <div style={{ fontSize: '14px', color: 'var(--gray-400)', fontStyle: 'italic', marginBottom: '16px' }}>{currentPage.metadata.style}</div>
-                            <p style={{ fontSize: '14px', color: 'var(--gray-200)', lineHeight: '1.6', marginBottom: '16px' }}>{currentPage.metadata.explainer_paragraph}</p>
+                            <p style={{ fontSize: '14px', color: 'var(--gray-200)', lineHeight: '1.6', marginBottom: '16px' }}>
+                              {typeof currentPage.metadata.explainer_paragraph === 'object' ? 
+                                Object.values(currentPage.metadata.explainer_paragraph).join(' ') : 
+                                currentPage.metadata.explainer_paragraph}
+                            </p>
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                             <div>
                               <div style={{ fontSize: '10px', color: 'var(--gray-400)', fontWeight: '700', marginBottom: '4px' }}>MATERIALS</div>
                               <ul style={{ listStyle: 'none', fontSize: '13px' }}>
-                                {currentPage.metadata.materials?.map(m => <li key={m} style={{ marginBottom: '2px' }}>• {m}</li>)}
+                                {Array.isArray(currentPage.metadata.materials) ? (
+                                  currentPage.metadata.materials.map(m => <li key={m} style={{ marginBottom: '2px' }}>• {m}</li>)
+                                ) : (
+                                  currentPage.metadata.materials ? <li style={{ marginBottom: '2px' }}>• {currentPage.metadata.materials}</li> : <li style={{ marginBottom: '2px', color: 'var(--gray-600)' }}>None specified</li>
+                                )}
                               </ul>
                             </div>
                             <div style={{ gridColumn: 'span 2' }}>
@@ -749,6 +1191,12 @@ function App() {
                               <div style={{ fontSize: '15px', color: 'var(--orange)', fontWeight: '700' }}>{currentPage.metadata.drill_topic}</div>
                             </div>
                           </div>
+                        </div>
+                      )}
+                      {activeTab === 'prompt' && (
+                        <div style={{ background: 'var(--navy)', padding: '16px', borderRadius: '8px', border: '1px solid #333' }}>
+                          <div style={{ fontSize: '10px', color: 'var(--gray-600)', marginBottom: '12px' }}>AI IMAGE GENERATION PROMPT</div>
+                          <pre style={{ whiteSpace: 'pre-wrap', fontSize: '14px', color: 'var(--orange)', lineHeight: '1.6', fontFamily: 'serif', fontStyle: 'italic' }}>{currentPage.inputPrompt || currentPage.context || 'N/A'}</pre>
                         </div>
                       )}
                       {activeTab === 'raw' && (
@@ -766,7 +1214,7 @@ function App() {
         )}
       </main>
 
-      {pages.length > 0 && (
+      {!isBookMode && pages.length > 0 && (
         <div className="thumb-strip">
           {pages.map((page, idx) => (
             <div 
@@ -791,6 +1239,9 @@ function App() {
               setPages([]);
               setCurrentIndex(-1);
               setTopic('');
+              setPdfDoc(null);
+              setIsBookMode(false);
+              setPdfPageIndex(0);
             }}
           >
             &times;

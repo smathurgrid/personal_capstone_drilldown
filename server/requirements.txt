@@ -6,3 +6,9 @@ requests
 python-dotenv
 huggingface_hub
 google-generativeai
+google-genai
+torch
+torchvision
+opencv-python
+transformers
+pymupdf

@@ -4,8 +4,8 @@ from PIL import Image, ImageDraw
 import os
 import sys
 
-# Add SAM2 path to sys.path to allow imports
-SAM2_PATH = "/Users/trohith/Documents/CAPSATONE PROJECT/sam2-test/sam2"
+# Add SAM2 path to sys.path to allow imports, allowing environment override for portability
+SAM2_PATH = os.getenv("SAM2_PATH", "/Users/trohith/Documents/CAPSATONE PROJECT/sam2-test/sam2")
 if SAM2_PATH not in sys.path:
     sys.path.append(SAM2_PATH)
 
