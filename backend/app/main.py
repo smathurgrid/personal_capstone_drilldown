@@ -1,27 +1,25 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Dict, Any, List
 import hashlib
 import os
 import shutil
 import uuid
+import json
 from .core.config import settings
 from .services.vision import vision_service
 from .services.search import search_service
-from PIL import Image, ImageDraw
-import json
+from .services.shopping_sources.router import shopping_router
+from PIL import Image, ImageOps
 
 app = FastAPI(title="AI Ecommerce DrillDown API")
 
-# Ensure debug directory exists
-os.makedirs(settings.DEBUG_DIR, exist_ok=True)
+@app.get("/api/health")
+async def health():
+    return {"status": "ok"}
 
-@app.get("/")
-async def root():
-    return {
-        "message": "AI Ecommerce DrillDown API is running",
-        "frontend_url": "http://localhost:5173",
-        "docs_url": "http://localhost:8000/docs"
-    }
+os.makedirs(settings.DEBUG_DIR, exist_ok=True)
+os.makedirs(settings.UPLOADS_DIR, exist_ok=True)
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,208 +29,108 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory storage for history (for demo purposes, could be Redis)
-drill_history = []
-
-def draw_marker(image, x_norm, y_norm):
-    draw = ImageDraw.Draw(image)
-    width, height = image.size
-    cx, cy = x_norm * width, y_norm * height
-    
-    # Outer ring
-    radius = 12
-    draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], outline="red", width=3)
-    # Inner dot
-    dot_radius = 4
-    draw.ellipse([cx - dot_radius, cy - dot_radius, cx + dot_radius, cy + dot_radius], fill="red")
-    return image
+MAX_UPLOAD_DIM = 1280  # max px on longest side sent to Qwen and displayed
 
 @app.post("/api/upload")
 async def upload_image(file: UploadFile = File(...)):
-    # Generate unique ID and hash
     image_id = str(uuid.uuid4())
     content = await file.read()
     image_hash = hashlib.md5(content).hexdigest()
-    
-    file_ext = os.path.splitext(file.filename)[1]
-    image_filename = f"{image_id}{file_ext}"
-    image_path = os.path.join(settings.UPLOADS_DIR, image_filename)
-    
-    with open(image_path, "wb") as f:
-        f.write(content)
-        
-    return {"imageId": image_id, "imageHash": image_hash, "imageUrl": f"/uploads/{image_filename}"}
 
-@app.post("/api/identify")
-async def identify_item(
-    imageId: str = Form(...),
-    x: float = Form(...),
-    y: float = Form(...)
-):
-    print(f"\n--- NEW DRILLDOWN REQUEST ---")
-    print(f"Coordinates: x={x:.4f}, y={y:.4f}")
-    
-    # 1. Find original image
-    image_filename = None
-    for f in os.listdir(settings.UPLOADS_DIR):
-        if f.startswith(imageId):
-            image_filename = f
-            break
-            
-    if not image_filename:
+    # Always normalize to JPEG at a capped resolution so Qwen's returned
+    # coordinates are in the same space as what PIL and the browser see.
+    import io
+    with Image.open(io.BytesIO(content)) as img:
+        img = ImageOps.exif_transpose(img)   # honour EXIF rotation
+        img = img.convert("RGB")
+        w, h = img.size
+        if max(w, h) > MAX_UPLOAD_DIM:
+            scale = MAX_UPLOAD_DIM / max(w, h)
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+            w, h = img.size
+
+    image_filename = f"{image_id}.jpg"
+    image_path = os.path.join(settings.UPLOADS_DIR, image_filename)
+    img.save(image_path, "JPEG", quality=92)
+    print(f"Saved upload {image_filename}: {w}x{h}")
+
+    return {"imageId": image_id, "imageHash": image_hash, "imageUrl": f"/uploads/{image_filename}", "filename": image_filename}
+
+@app.post("/api/detect-garments")
+async def detect_garments(filename: str = Form(...)):
+    print(f"\n--- DETECT GARMENTS: {filename} ---")
+    image_path = os.path.join(settings.UPLOADS_DIR, filename)
+    if not os.path.exists(image_path):
         raise HTTPException(status_code=404, detail="Image not found")
         
-    original_path = os.path.join(settings.UPLOADS_DIR, image_filename)
-    
-    # 2. Generate Composite Image
-    img = Image.open(original_path).convert("RGB")
-    composite_img = img.copy()
-    composite_img = draw_marker(composite_img, x, y)
-    
-    composite_filename = f"comp_{image_filename}"
-    composite_path = os.path.join(settings.DEBUG_DIR, composite_filename)
-    composite_img.save(composite_path)
-    
-    # Save original to debug too
-    img.save(os.path.join(settings.DEBUG_DIR, f"orig_{image_filename}"))
-    
-    # 3. Identify item with Gemini (Original + Composite)
-    attributes = await vision_service.identify_item(original_path, composite_path, x, y)
-    
-    if not attributes:
-        print(f"FAILED: Gemini identification returned no attributes")
-        raise HTTPException(status_code=500, detail="Could not identify item")
-        
-    print(f"IDENTIFIED: {attributes.get('articleType')} ({attributes.get('color')})")
-    print(f"DESCRIPTION: {attributes.get('description')}")
+    try:
+        garments = await vision_service.detect_garments(image_path)
+    except Exception as exc:
+        print(f"Garment detection failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"Garment detection failed: {exc}")
+    return {"garments": garments}
 
-    # 4. Generate Fused Embeddings with FashionCLIP
-    bbox = attributes.get('bounding_box')
-    
-    # Validation: Ensure bbox exists and is valid
-    if not bbox or not all(k in bbox for k in ['x1', 'y1', 'x2', 'y2']):
-        print("WARNING: Invalid bounding box, using full image for retrieval")
-        orig_crop = img
-        comp_crop = composite_img
-    else:
-        x1, y1, x2, y2 = bbox['x1'], bbox['y1'], bbox['x2'], bbox['y2']
-        # Clamp to image size
-        x1, x2 = max(0, min(x1, img.width)), max(0, min(x2, img.width))
-        y1, y2 = max(0, min(y1, img.height)), max(0, min(y2, img.height))
-        
-        if x2 <= x1 or y2 <= y1:
-            print(f"WARNING: Zero dimension crop, using full image")
-            orig_crop = img
-            comp_crop = composite_img
-        else:
-            print(f"CROPPING: {x1}, {y1}, {x2}, {y2} (Size: {x2-x1}x{y2-y1})")
-            orig_crop = img.crop((x1, y1, x2, y2))
-            comp_crop = composite_img.crop((x1, y1, x2, y2))
-            
-            # Save crops for diagnostics
-            orig_crop.save(os.path.join(settings.DEBUG_DIR, f"crop_orig_{image_filename}"))
-            comp_crop.save(os.path.join(settings.DEBUG_DIR, f"crop_comp_{image_filename}"))
-    
-    # Get fused embedding (0.7 orig + 0.3 comp)
-    embedding = search_service.get_embedding(orig_crop, comp_crop)
-    
-    # 5. Hybrid Search in Qdrant (Visual + Semantic)
-    search_results = await search_service.hybrid_search(embedding, attributes)
-    
-    # 6. Format and Return
-    results = []
-    for res in search_results:
-        results.append({
-            "product_id": res.id,
-            "visual_score": res.score, # This is the final fused score now
-            "payload": res.payload
-        })
-    
-    print(f"PIPELINE COMPLETE: Found {len(results)} ranked matches")
-        
-    node = {
-        "id": str(uuid.uuid4()),
-        "imageId": imageId,
-        "x": x,
-        "y": y,
-        "attributes": attributes,
-        "results": results
-    }
-    drill_history.append(node)
-    
-    return node
-
-@app.post("/api/drill")
-async def drill_down(
-    productId: int = Form(...),
-    x: float = Form(...),
-    y: float = Form(...)
-):
-    # Find product image in dataset
-    image_filename = f"{productId}.jpg"
-    image_path = os.path.join(settings.DATASET_IMAGES_DIR, image_filename)
-    
+@app.post("/api/get-details")
+async def get_details(filename: str = Form(...), bbox: str = Form(...)):
+    print(f"\n--- GET DETAILS: {filename} ---")
+    image_path = os.path.join(settings.UPLOADS_DIR, filename)
     if not os.path.exists(image_path):
-        raise HTTPException(status_code=404, detail="Product image not found")
+        raise HTTPException(status_code=404, detail="Image not found")
         
-    # For drilldown, we don't necessarily need a composite since it's a known product,
-    # but to keep logic consistent we follow the same path.
-    img = Image.open(image_path).convert("RGB")
-    composite_img = img.copy()
-    composite_img = draw_marker(composite_img, x, y)
-    
-    # Save to temp for vision service
-    temp_orig = os.path.join(settings.DEBUG_DIR, f"temp_drill_orig_{productId}.jpg")
-    temp_comp = os.path.join(settings.DEBUG_DIR, f"temp_drill_comp_{productId}.jpg")
-    img.save(temp_orig)
-    composite_img.save(temp_comp)
-    
-    attributes = await vision_service.identify_item(temp_orig, temp_comp, x, y)
-    
-    if not attributes:
-        raise HTTPException(status_code=500, detail="Could not identify item")
+    try:
+        bbox_dict = json.loads(bbox)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid bounding box format")
         
-    bbox = attributes.get('bounding_box')
-    if bbox and all(k in bbox for k in ['x1', 'y1', 'x2', 'y2']):
-        orig_crop = img.crop((bbox['x1'], bbox['y1'], bbox['x2'], bbox['y2']))
-        comp_crop = composite_img.crop((bbox['x1'], bbox['y1'], bbox['x2'], bbox['y2']))
-    else:
-        orig_crop = img
-        comp_crop = composite_img
+    try:
+        details = await vision_service.analyze_garment(image_path, bbox_dict)
+    except Exception as exc:
+        print(f"Garment analysis failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"Garment analysis failed: {exc}")
+    if not details:
+        raise HTTPException(status_code=500, detail="Failed to analyze garment")
         
-    embedding = search_service.get_embedding(orig_crop, comp_crop)
-    search_results = await search_service.hybrid_search(embedding, attributes)
-    
-    results = []
-    for res in search_results:
-        results.append({
-            "product_id": res.id,
-            "visual_score": res.score,
-            "payload": res.payload
-        })
-        
-    node = {
-        "id": str(uuid.uuid4()),
-        "productId": productId,
-        "x": x,
-        "y": y,
-        "attributes": attributes,
-        "results": results
-    }
-    drill_history.append(node)
-    
-    return node
+    return details
 
-@app.get("/api/history")
-async def get_history():
-    return drill_history
+@app.post("/api/search-products")
+async def search_products(query: str = Form(...)):
+    print(f"\n--- SEARCH PRODUCTS: {query} ---")
+    products = await shopping_router.route_query(query)
+    return {"products": products}
 
-# Static files for uploads
+@app.post("/api/rerank")
+async def rerank_products(
+    filename: str = Form(...),
+    bbox: str = Form(...),
+    products: str = Form(...),
+    attributes: str = Form(...)
+):
+    print(f"\n--- RERANK PRODUCTS ---")
+    image_path = os.path.join(settings.UPLOADS_DIR, filename)
+    
+    try:
+        bbox_dict = json.loads(bbox)
+        products_list = json.loads(products)
+        attributes_dict = json.loads(attributes)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+        
+    # Crop target image for FashionCLIP
+    crop_path = os.path.join(settings.DEBUG_DIR, f"crop_{uuid.uuid4()}.jpg")
+    with Image.open(image_path) as img:
+        crop = img.crop((bbox_dict['x1'], bbox_dict['y1'], bbox_dict['x2'], bbox_dict['y2']))
+        crop.save(crop_path)
+        
+    ranked_products = await search_service.rerank_products(crop_path, products_list, attributes_dict)
+    
+    if os.path.exists(crop_path):
+        os.remove(crop_path)
+        
+    return {"products": ranked_products}
+
+# Static files
 from fastapi.staticfiles import StaticFiles
 app.mount("/uploads", StaticFiles(directory=settings.UPLOADS_DIR), name="uploads")
-
-# Also mount dataset images for the frontend to show product images
-app.mount("/dataset", StaticFiles(directory=settings.DATASET_IMAGES_DIR), name="dataset")
 
 if __name__ == "__main__":
     import uvicorn

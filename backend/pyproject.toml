@@ -7,7 +7,9 @@ requires-python = ">=3.13"
 dependencies = [
     "fashion-clip>=0.2.2",
     "fastapi>=0.136.3",
-    "google-generativeai>=0.8.6",
+    "google-search-results>=2.4.2",
+    "httpx>=0.28.1",
+    "ollama>=0.6.2",
     "pandas>=3.0.3",
     "pillow>=12.2.0",
     "psycopg2-binary>=2.9.12",

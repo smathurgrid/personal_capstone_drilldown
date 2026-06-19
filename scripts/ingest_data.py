@@ -43,7 +43,8 @@ def ingest(limit=None):
     
     if not exists:
         print(f"Creating collection: {COLLECTION_NAME}")
-        # FashionCLIP-apple/fashion-clip has 512 dimensions (CLIP VIT-B/32)
+        # FashionCLIP-apple/fashion-clip has
+        # 512 dimensions (CLIP VIT-B/32)
         client.create_collection(
             collection_name=COLLECTION_NAME,
             vectors_config=models.VectorParams(size=512, distance=models.Distance.COSINE),
