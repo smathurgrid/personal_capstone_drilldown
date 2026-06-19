@@ -234,7 +234,7 @@ class PageService:
 
             # 3. Generate child page guided by the style reference
             ref_path = segment_path if segment_path else crop_path
-            await AIService.generate_image(drill_topic, output_path, reference_image_path=ref_path)
+            await AIService.generate_image(drill_topic, output_path, reference_image_path=ref_path, drill_mode=drill_mode)
             
             # Generate depth map
             depth_path = os.path.join(STATIC_DIR, f"{page_id}_depth.png")
@@ -398,7 +398,7 @@ class PageService:
             print(f"Generating image for topic: {drill_topic[:50]}...")
             
             gen_task = asyncio.create_task(
-                AIService.generate_image(drill_topic, output_path, reference_image_path=ref_path)
+                AIService.generate_image(drill_topic, output_path, reference_image_path=ref_path, drill_mode=drill_mode)
             )
             
             # Keep-alive heartbeat loop to prevent HTTP connection timeouts

@@ -220,9 +220,9 @@ class AIService:
             return ""
 
     @classmethod
-    async def generate_image(cls, prompt: str, output_path: str, reference_image_path: str = None):
+    async def generate_image(cls, prompt: str, output_path: str, reference_image_path: str = None, drill_mode: str = "inside"):
         """Fast image generation via Google Imagen, guided by an optional style reference image."""
-        print(f"DRAWING: Google Imagen...")
+        print(f"DRAWING: Google Imagen (mode={drill_mode})...")
         
         # Safeguard: If prompt is a structured list or dict returned by the VLM, extract the raw text prompt string
         if isinstance(prompt, list):
@@ -248,9 +248,21 @@ class AIService:
             except Exception as e:
                 print(f"Failed to get style guide: {e}")
 
-        enhanced_prompt = f"A delicate illustration of {prompt}. technical editorial style."
-        if style_desc:
-            enhanced_prompt += f" Maintain high visual continuity and style matching with: {style_desc.strip()}."
+        if drill_mode == "pov":
+            enhanced_prompt = (
+                f"A realistic first-person point-of-view (POV) perspective photograph looking OUTWARD from the clicked object. "
+                f"The immediate foreground or framing of the image should subtly show parts of the clicked object or its immediate housing/structure to establish the perspective. "
+                f"View details: {prompt}."
+            )
+            if style_desc:
+                enhanced_prompt += (
+                    f" CRITICAL: To maintain perfect visual continuity, the image MUST use the exact same color palette, "
+                    f"texture design, materials, and overall aesthetic described here: {style_desc.strip()}."
+                )
+        else:
+            enhanced_prompt = f"A delicate illustration of {prompt}. technical editorial style."
+            if style_desc:
+                enhanced_prompt += f" Maintain high visual continuity and style matching with: {style_desc.strip()}."
             
         try:
             def run():
