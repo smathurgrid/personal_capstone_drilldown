@@ -977,8 +977,8 @@ function App() {
               </div>
             ) : layoutMode === 'diagram' ? (
 
-              <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '0 260px' }}>
-                <div className="canvas-wrapper" style={{ margin: 0, position: 'relative', width: '100%', maxWidth: '700px' }} ref={canvasRef} onClick={handleCanvasClick}>
+              <div style={{ display: 'flex', justifyContent: 'center', width: '100%', padding: '0 180px' }}>
+                <div className="canvas-wrapper" style={{ margin: 0, position: 'relative', width: '100%', maxWidth: '1100px' }} ref={canvasRef} onClick={handleCanvasClick}>
                   {currentPage.imageUrl ? (
                     <FlipbookPlayer 
                       imageUrl={currentPage.imageUrl} 
@@ -1119,7 +1119,7 @@ function App() {
                 </div>
               </div>
             ) : layoutMode === 'standard' ? (
-              <div style={{ width: '100%', maxWidth: '1000px', margin: '0 auto' }}>
+              <div style={{ width: '100%', maxWidth: '1300px', margin: '0 auto' }}>
                 <div className="canvas-wrapper" ref={canvasRef} onClick={handleCanvasClick}>
                   {currentPage.imageUrl ? (
                     <FlipbookPlayer 
