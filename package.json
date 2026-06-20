@@ -1,0 +1,42 @@
+{
+  "name": "drilldown-unified",
+  "private": true,
+  "version": "0.5.0-complete",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "frontend": "vite --host 127.0.0.1",
+    "backend": "python3 -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "python3 -m pytest",
+    "test:frontend": "vitest run",
+    "health": "curl -s http://127.0.0.1:8000/api/health | python3 -m json.tool",
+    "smoke": "bash scripts/smoke_test.sh",
+    "ingest": "python3 scripts/ingest_fashion_dataset.py"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "framer-motion": "^11.15.0",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^3.8.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.21",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.6.3",
+    "vite": "^6.0.5",
+    "vitest": "^3.2.6"
+  }
+}

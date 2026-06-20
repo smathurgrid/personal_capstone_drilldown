@@ -1,0 +1,119 @@
+/* Import Google Fonts first before any CSS rules */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Sans+3:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-sans: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-primary: #bbc7df;
+  --color-on-primary: #253144;
+  --color-primary-container: #0a1628;
+  --color-on-primary-container: #758096;
+  --color-secondary: #ffb598;
+  --color-on-secondary: #591d00;
+  --color-secondary-container: #b94501;
+  --color-on-secondary-container: #ffe7df;
+  --color-tertiary: #ffb59d;
+  --color-on-tertiary: #5d1800;
+  --color-background: #0a1628;
+  --color-surface: #111415;
+  --color-surface-container: #1d2021;
+  --color-surface-container-high: #282a2b;
+  --color-surface-container-highest: #323536;
+  --color-surface-container-lowest: #0c0f10;
+  --color-outline: #8f9097;
+  --color-outline-variant: #45474c;
+  --color-on-surface: #e1e3e4;
+  --color-on-surface-variant: #c5c6cd;
+  
+  --color-navy-mid: #142240;
+  --color-navy-light: #1e3460;
+  --color-orange-glow: #D56434;
+  --color-interactive-red: rgba(255, 0, 0, 0.7);
+}
+
+@layer base {
+  body {
+    background-color: #0c0f10;
+    color: #e1e3e4;
+    font-family: var(--font-sans);
+  }
+}
+
+/* Glassmorphism utilities */
+.glass-panel {
+  background: rgba(20, 34, 64, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-left: 1px solid rgba(69, 71, 76, 0.2);
+}
+
+.glass-card {
+  background: rgba(17, 20, 21, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(69, 71, 76, 0.3);
+}
+
+/* Animations */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.shimmer-sweep {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-sweep::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0,
+    rgba(255, 255, 255, 0.05) 20%,
+    rgba(255, 255, 255, 0.1) 60%,
+    rgba(255, 255, 255, 0)
+  );
+  animation: shimmer 2s infinite;
+}
+
+/* DrillCanvas pulse animation */
+@keyframes pulse-ring {
+  0% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(213, 100, 52, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(213, 100, 52, 0); }
+  100% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(213, 100, 52, 0); }
+}
+
+.pulse-ring-custom {
+  animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+/* Custom scrollbar hiding */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Fade in animation */
+@keyframes fadeIn {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in;
+}

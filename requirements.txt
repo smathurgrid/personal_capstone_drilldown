@@ -1,0 +1,27 @@
+# Core
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+httpx>=0.27.0
+pytest>=8.0.0
+python-multipart>=0.0.9
+pillow>=10.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+litellm>=1.55.0
+
+# Ecommerce
+google-generativeai>=0.8.0
+qdrant-client>=1.11.0
+fashion-clip>=0.2.2
+pandas>=2.0.0
+tqdm>=4.66.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Vision SAM2 (optional — set SAM2_PATH)
+# numpy installed via torch/sam2 deps
+
+# pi-agent-core (Layer 2 orchestration)
+# pip install vendor/pi_agent-0.1.0-py3-none-any.whl
+# Or: pip install -e temp-docs-pi/pi-mono-sdk-main
