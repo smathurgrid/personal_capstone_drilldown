@@ -58,3 +58,7 @@ data/ecommerce/debug/*
 data/explainer/static/*
 !data/**/.gitkeep
 !data/fashion-dataset/README.md
+
+
+
+pi-mono-sdk/
