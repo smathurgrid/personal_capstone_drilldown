@@ -31,11 +31,11 @@ async def handle_upload_kb(file: UploadFile) -> dict:
     kb_id = hashlib.sha256(content).hexdigest()[:16]
     source_name = file.filename
 
-    page_count = await ingestion.ingest_pdf(content, source_name, kb_id, _qdrant_path())
-    if page_count == 0:
-        raise HTTPException(status_code=422, detail="No text found in PDF — is it scanned/image-only?")
+    chunk_count = await ingestion.ingest_pdf(content, source_name, kb_id, _qdrant_path())
+    if chunk_count == 0:
+        raise HTTPException(status_code=422, detail="Could not extract any content from this PDF.")
 
-    entry = store.register_kb(_kb_dir(), kb_id, source_name, page_count)
+    entry = store.register_kb(_kb_dir(), kb_id, source_name, chunk_count)
     return entry
 
 

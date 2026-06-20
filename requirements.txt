@@ -19,13 +19,11 @@ tqdm>=4.66.0
 torch>=2.0.0
 torchvision>=0.15.0
 
-# Vision SAM2 (optional — set SAM2_PATH)
-# numpy installed via torch/sam2 deps
-
 # Knowledge Base (RAG)
 pypdf>=4.0.0
 sentence-transformers>=3.0.0
+docling>=2.0.0
+# docling installs its own OCR (RapidOCR) and layout models on first run (~500MB download)
 
-# pi-agent-core (Layer 2 orchestration)
-# pip install vendor/pi_agent-0.1.0-py3-none-any.whl
-# Or: pip install -e temp-docs-pi/pi-mono-sdk-main
+# Vision SAM2 (optional — set SAM2_PATH)
+# numpy installed via torch/sam2 deps

@@ -28,7 +28,8 @@ def _sync_search(query: str, kb_id: str, qdrant_path: str, top_k: int) -> list[d
     embedder = get_embedder()
     query_vec = embedder.encode([query], show_progress_bar=False)[0].tolist()
 
-    hits = client.search(col, query_vector=query_vec, limit=top_k, with_payload=True)
+    response = client.query_points(col, query=query_vec, limit=top_k, with_payload=True)
+    hits = response.points
 
     results = []
     for hit in hits:
@@ -39,6 +40,7 @@ def _sync_search(query: str, kb_id: str, qdrant_path: str, top_k: int) -> list[d
                 "page_num": payload.get("page_num", 0),
                 "source_name": payload.get("source_name", ""),
                 "score": round(float(hit.score), 3),
+                "content_type": payload.get("content_type", "text"),
             }
         )
     return results
