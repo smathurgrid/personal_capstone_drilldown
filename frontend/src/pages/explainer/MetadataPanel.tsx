@@ -75,6 +75,14 @@ export default function MetadataPanel({ page, groundingLabel }: Props) {
             )}
             {meta.explainer_paragraph && <p className="meta-paragraph">{meta.explainer_paragraph}</p>}
             {page.context && <p className="meta-context">Drill: {page.context}</p>}
+            {meta.kb_citation && (
+              <p className="meta-field kb-citation-field">
+                <strong>Source</strong> {meta.kb_citation as string}
+                {meta.kb_score != null && (
+                  <span className="kb-score"> · {Math.round((meta.kb_score as number) * 100)}% match</span>
+                )}
+              </p>
+            )}
             {meta.drill_topic && (
               <p className="meta-field">
                 <strong>Next layer prompt</strong> {meta.drill_topic}

@@ -19,6 +19,9 @@ export interface ExplainerPage {
     style?: string;
     materials?: string | string[];
     spatial_context?: string;
+    kb_citation?: string;
+    kb_score?: number;
+    kb_mode?: boolean;
   };
   rawJson?: string;
   isStreaming?: boolean;

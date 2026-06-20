@@ -44,6 +44,7 @@ def handle_stream_page(req: PageRequest, orchestrator: ExplainerPageWorkflow):
         grounding_mode=req.groundingMode or default_grounding_mode(),
         custom_topic=req.customTopic,
         cache_bust=req.cacheBust,
+        kb_id=req.kbId or None,
     )
 
 

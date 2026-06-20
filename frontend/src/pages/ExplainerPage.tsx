@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Upload, Wand2, Bot } from "lucide-react";
+import { Loader2, Upload, Wand2, Bot, BookOpen, Trash2 } from "lucide-react";
 import {
   analyzeExplainerPage,
   cancelExplainerDrill,
@@ -7,6 +7,10 @@ import {
   fetchVisionHealth,
   streamExplainerPage,
   uploadExplainerImage,
+  uploadKnowledgeBase,
+  listKnowledgeBases,
+  deleteKnowledgeBase,
+  type KbEntry,
   type ExplainerPage as ExplainerPageData,
   type GroundingMode,
   type VisionModelKey,
@@ -63,7 +67,14 @@ export default function ExplainerPage() {
   const [lastClick, setLastClick] = useState<{ x: number; y: number } | null>(null);
   const [pendingDrill, setPendingDrill] = useState<PendingDrill | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const kbFileRef = useRef<HTMLInputElement>(null);
   const autoDrillRef = useRef<{ depth: number; maxDepth: number } | null>(null);
+
+  // Knowledge Base state
+  const [kbMode, setKbMode] = useState<"generic" | "kb">("generic");
+  const [kbList, setKbList] = useState<KbEntry[]>([]);
+  const [activeKbId, setActiveKbId] = useState<string | null>(null);
+  const [kbUploading, setKbUploading] = useState(false);
 
   const currentPage = currentIndex >= 0 ? pages[currentIndex] : null;
   const analyzing = analyzingId === currentPage?.id;
@@ -79,6 +90,50 @@ export default function ExplainerPage() {
       })
       .catch(() => setGroundingMode("red_ring"));
   }, []);
+
+  useEffect(() => {
+    listKnowledgeBases()
+      .then((list) => {
+        setKbList(list);
+        if (list.length > 0 && !activeKbId) setActiveKbId(list[list.length - 1].id);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleKbUpload = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      setError("Only PDF files are supported for Knowledge Base");
+      return;
+    }
+    setKbUploading(true);
+    setError(null);
+    try {
+      const entry = await uploadKnowledgeBase(file);
+      setKbList((prev) => [...prev.filter((k) => k.id !== entry.id), entry]);
+      setActiveKbId(entry.id);
+      setKbMode("kb");
+    } catch (err) {
+      setError(getErrorMessage(err, "KB upload failed"));
+    } finally {
+      setKbUploading(false);
+    }
+  };
+
+  const handleKbDelete = async (kbId: string) => {
+    try {
+      await deleteKnowledgeBase(kbId);
+      setKbList((prev) => prev.filter((k) => k.id !== kbId));
+      if (activeKbId === kbId) {
+        const remaining = kbList.filter((k) => k.id !== kbId);
+        setActiveKbId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
+        if (remaining.length === 0) setKbMode("generic");
+      }
+    } catch (err) {
+      setError(getErrorMessage(err, "KB delete failed"));
+    }
+  };
+
+  const resolvedKbId = kbMode === "kb" ? activeKbId : null;
 
   const runAnalyze = useCallback(
     async (page: ExplainerPageData, scanMode: "global" | "focus" = "global") => {
@@ -261,7 +316,7 @@ export default function ExplainerPage() {
 
     try {
       await streamExplainerPage(
-        { parentId, x, y, customTopic, visionModel, groundingMode, cacheBust },
+        { parentId, x, y, customTopic, visionModel, groundingMode, cacheBust, kbId: resolvedKbId },
         (eventType, data) => {
           if (eventType === "complete") {
             finalizeDrillPage(
@@ -406,6 +461,82 @@ export default function ExplainerPage() {
             <option value="red_ring">Red ring marker</option>
           </select>
         </div>
+
+        {/* KB mode toggle */}
+        <div className="control-group">
+          <label>Mode</label>
+          <div className="kb-mode-toggle">
+            <button
+              type="button"
+              className={`kb-mode-btn${kbMode === "generic" ? " active" : ""}`}
+              onClick={() => setKbMode("generic")}
+            >
+              Generic
+            </button>
+            <button
+              type="button"
+              className={`kb-mode-btn${kbMode === "kb" ? " active" : ""}`}
+              onClick={() => setKbMode("kb")}
+            >
+              <BookOpen size={12} /> Knowledge Base
+            </button>
+          </div>
+        </div>
+
+        {kbMode === "kb" && (
+          <div className="kb-panel">
+            <input
+              ref={kbFileRef}
+              type="file"
+              accept=".pdf"
+              hidden
+              onChange={(e) => e.target.files?.[0] && handleKbUpload(e.target.files[0])}
+            />
+            <button
+              type="button"
+              className="explainer-btn"
+              onClick={() => kbFileRef.current?.click()}
+              disabled={kbUploading}
+            >
+              {kbUploading ? <Loader2 className="spin" size={14} /> : <Upload size={14} />}
+              {kbUploading ? "Ingesting…" : "Upload PDF manual"}
+            </button>
+
+            {kbList.length > 0 && (
+              <div className="kb-list">
+                <label style={{ fontSize: "0.65rem", color: "#8b95a8", textTransform: "uppercase" }}>
+                  Active manual
+                </label>
+                {kbList.map((kb) => (
+                  <div
+                    key={kb.id}
+                    className={`kb-entry${activeKbId === kb.id ? " active" : ""}`}
+                    onClick={() => setActiveKbId(kb.id)}
+                  >
+                    <span className="kb-entry-name" title={kb.name}>
+                      {kb.name.length > 24 ? kb.name.slice(0, 22) + "…" : kb.name}
+                    </span>
+                    <span className="kb-entry-pages">{kb.page_count}p</span>
+                    <button
+                      type="button"
+                      className="kb-delete-btn"
+                      onClick={(e) => { e.stopPropagation(); handleKbDelete(kb.id); }}
+                      title="Remove"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {kbList.length === 0 && !kbUploading && (
+              <p style={{ fontSize: "0.72rem", color: "#8b95a8", margin: 0 }}>
+                Upload a PDF manual to ground drill analysis in your documentation.
+              </p>
+            )}
+          </div>
+        )}
 
         <input
           ref={fileRef}

@@ -83,6 +83,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         grounding_mode: str = "sam2",
         custom_topic: str | None = None,
         cache_bust: str | None = None,
+        kb_id: str | None = None,
     ):
         if query:
             yield format_sse_event("generating", {"message": "Generating initial image..."})
@@ -105,6 +106,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 grounding_mode,
                 custom_topic,
                 cache_bust=cache_bust,
+                kb_id=kb_id,
             ):
                 yield event
             return
@@ -181,6 +183,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         grounding_mode: str,
         custom_topic: str | None,
         cache_bust: str | None = None,
+        kb_id: str | None = None,
     ):
         page_id, output_path, metadata_path, parent_path, grounding, vision_result, crop_path = (
             await self._prepare_drill(
@@ -194,6 +197,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 include_custom_topic_in_hash=self._DRILL_INCLUDE_CUSTOM_TOPIC_IN_HASH,
                 emit_sse=True,
                 cache_bust=cache_bust,
+                kb_id=kb_id,
             )
         )
 
@@ -357,6 +361,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         include_custom_topic_in_hash: bool,
         emit_sse: bool = False,
         cache_bust: str | None = None,
+        kb_id: str | None = None,
     ):
         hash_key = self._pages.drill_hash_key(
             parent_id,
@@ -401,6 +406,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
             parent_context=parent_context,
             segment_path=grounding.segment_path,
             marked_path=grounding.marked_path,
+            kb_id=kb_id,
         )
 
         return page_id, output_path, metadata_path, parent_path, grounding, vision_result, crop_path

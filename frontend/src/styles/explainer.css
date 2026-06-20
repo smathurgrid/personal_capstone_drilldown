@@ -556,6 +556,115 @@
   word-break: break-word;
 }
 
+/* ─── Knowledge Base UI ──────────────────────────────────────────────────── */
+
+.kb-mode-toggle {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.kb-mode-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid #3a4558;
+  background: #0c0e12;
+  color: #8b95a8;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+
+.kb-mode-btn.active {
+  background: rgba(237, 106, 44, 0.15);
+  border-color: #ed6a2c;
+  color: #ed6a2c;
+}
+
+.kb-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  background: rgba(10, 22, 40, 0.5);
+  border: 1px solid rgba(237, 106, 44, 0.2);
+  border-radius: 8px;
+}
+
+.kb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.15rem;
+}
+
+.kb-entry {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #3a4558;
+  background: #0c0e12;
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: #8b95a8;
+  transition: all 0.15s;
+}
+
+.kb-entry.active {
+  border-color: #ed6a2c;
+  color: #e8ecf4;
+  background: rgba(237, 106, 44, 0.08);
+}
+
+.kb-entry-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-entry-pages {
+  font-size: 0.65rem;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.kb-delete-btn {
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0.1rem;
+  display: flex;
+  align-items: center;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.kb-delete-btn:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.kb-citation-field {
+  background: rgba(237, 106, 44, 0.06);
+  border-left: 3px solid #ed6a2c;
+  padding-left: 0.5rem;
+  border-radius: 0 4px 4px 0;
+}
+
+.kb-score {
+  color: #8b95a8;
+  font-size: 0.72rem;
+}
+
 .spin {
   animation: explainer-spin 1s linear infinite;
 }

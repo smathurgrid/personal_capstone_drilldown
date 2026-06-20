@@ -63,6 +63,10 @@ class Settings:
     SAM2_PATH: str = os.getenv("SAM2_PATH", "")
     DEFAULT_GROUNDING_MODE: str = os.getenv("DEFAULT_GROUNDING_MODE", "")
 
+    # Knowledge Base (RAG)
+    KB_DIR: Path = _path(os.getenv("KB_DIR"), "data/kb")
+    KB_QDRANT_PATH: Path = _path(os.getenv("KB_QDRANT_PATH"), "data/kb/qdrant")
+
     STAGE: int = 5
 
 
@@ -77,5 +81,7 @@ def ensure_data_dirs() -> None:
         settings.DATASET_IMAGES_DIR,
         settings.EXPLAINER_STATIC_DIR,
         settings.QDRANT_PATH,
+        settings.KB_DIR,
+        settings.KB_QDRANT_PATH,
     ):
         path.mkdir(parents=True, exist_ok=True)

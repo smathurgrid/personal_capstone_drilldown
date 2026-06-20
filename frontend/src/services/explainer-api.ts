@@ -98,6 +98,38 @@ export async function generateFromTopic(topic: string) {
   return res.json() as Promise<{ image_b64: string; image_prompt: string }>;
 }
 
+// ─── Knowledge Base API ───────────────────────────────────────────────────────
+
+const KB = `${API_BASE}/api/kb`;
+
+export interface KbEntry {
+  id: string;
+  name: string;
+  page_count: number;
+  created_at: string;
+}
+
+export async function uploadKnowledgeBase(file: File): Promise<KbEntry> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${KB}/upload`, { method: "POST", body: fd });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function listKnowledgeBases(): Promise<KbEntry[]> {
+  const res = await fetch(`${KB}/list`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteKnowledgeBase(kbId: string): Promise<void> {
+  const res = await fetch(`${KB}/${kbId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+// ─── Stream page (with optional kbId) ────────────────────────────────────────
+
 export async function streamExplainerPage(
   params: {
     query?: string;
@@ -108,6 +140,7 @@ export async function streamExplainerPage(
     groundingMode?: string;
     visionModel?: string;
     cacheBust?: string;
+    kbId?: string | null;
   },
   onEvent: (type: string, data: Record<string, unknown>) => void
 ) {
@@ -118,6 +151,7 @@ export async function streamExplainerPage(
       ...params,
       visionModel: params.visionModel ?? "qwen3.5",
       groundingMode: params.groundingMode ?? "red_ring",
+      kbId: params.kbId ?? null,
     }),
   });
   if (!res.ok) throw new Error("Failed to start stream");

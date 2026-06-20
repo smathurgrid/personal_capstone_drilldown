@@ -24,6 +24,7 @@ if str(UNIFIED_ROOT) not in sys.path:
 from backend.app.routes import (  # noqa: E402
     ecommerce_router,
     generation_router,
+    kb_router,
     tools_router,
     vision_router,
 )
@@ -54,6 +55,7 @@ app.include_router(vision_router, prefix="/api/explainer/vision")
 app.include_router(generation_router, prefix="/api/explainer/generate")
 app.include_router(tools_router, prefix="/api")
 app.include_router(agent_router, prefix="/api/agent")
+app.include_router(kb_router, prefix="/api/kb")
 
 app.mount("/uploads", StaticFiles(directory=str(settings.UPLOADS_DIR)), name="uploads")
 app.mount("/dataset", StaticFiles(directory=str(settings.DATASET_IMAGES_DIR)), name="dataset")

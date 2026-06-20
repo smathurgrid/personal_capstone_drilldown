@@ -14,6 +14,7 @@ class PageRequest(BaseModel):
     visionModel: Optional[str] = "qwen3.5"
     groundingMode: Optional[str] = None
     cacheBust: Optional[str] = None
+    kbId: Optional[str] = None
 
 
 class AnalyzeRequest(BaseModel):
