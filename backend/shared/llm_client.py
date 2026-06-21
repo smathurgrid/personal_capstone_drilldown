@@ -53,13 +53,20 @@ class LLMClient:
         temperature: float = 0.0,
         timeout: int = 300,
         think: bool = False,
+        num_predict: int | None = None,
     ) -> str:
         if self.provider == "litellm":
             return self._litellm_completion(
                 model, prompt, images=images, temperature=temperature, timeout=timeout
             )
         return self._ollama_chat_completion(
-            model, prompt, images=images, temperature=temperature, timeout=timeout, think=think
+            model,
+            prompt,
+            images=images,
+            temperature=temperature,
+            timeout=timeout,
+            think=think,
+            num_predict=num_predict,
         )
 
     def _litellm_completion(
@@ -100,19 +107,30 @@ class LLMClient:
         temperature: float,
         timeout: int,
         think: bool,
+        num_predict: int | None = None,
     ) -> str:
         message: dict[str, Any] = {"role": "user", "content": prompt}
         if images:
             message["images"] = images
+        
+        options: dict[str, Any] = {"temperature": temperature}
+        if num_predict is not None:
+            options["num_predict"] = num_predict
+
         payload: dict[str, Any] = {
             "model": model,
             "messages": [message],
             "stream": False,
-            "think": think,
-            "options": {"temperature": temperature},
+            "options": options,
         }
+        if think:
+            payload["think"] = True
         resp = requests.post(f"{self._ollama_api}/chat", json=payload, timeout=timeout)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except requests.exceptions.HTTPError as exc:
+            logger.error("Ollama bad request details: %s", resp.text)
+            raise ValueError(f"Ollama error: {resp.text}") from exc
         return resp.json().get("message", {}).get("content", "")
 
     def openai_compatible_base_url(self) -> str:

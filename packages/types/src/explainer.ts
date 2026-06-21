@@ -28,6 +28,7 @@ export interface ExplainerPage {
   samConfidence?: number | null;
   inputPrompt?: string;
   visionModel?: string;
+  drillMode?: string;
 }
 
 export type GroundingMode = "sam2" | "red_ring";

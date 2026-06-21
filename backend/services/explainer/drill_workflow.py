@@ -48,6 +48,8 @@ class DrillWorkflow:
         marked_path: str | None,
         crop_path: str | None,
         result_metadata: dict,
+        drill_mode: str = "inside",
+        style_desc: str = "",
     ) -> dict:
         await generate_drill_image_to_file(
             drill_topic,
@@ -58,6 +60,8 @@ class DrillWorkflow:
             segment_path=segment_path,
             marked_path=marked_path,
             crop_path=crop_path if isinstance(crop_path, str) else None,
+            drill_mode=drill_mode,
+            style_desc=style_desc,
             image_generator=self._image_generator,
         )
         self._pages.save_drill_metadata(metadata_path, result_metadata)

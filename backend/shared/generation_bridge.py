@@ -18,6 +18,8 @@ async def generate_drill_image_to_file(
     segment_path: str | None = None,
     marked_path: str | None = None,
     crop_path: str | None = None,
+    drill_mode: str = "inside",
+    style_desc: str = "",
     *,
     image_generator: ImageGenerator,
 ) -> Path:
@@ -34,8 +36,22 @@ async def generate_drill_image_to_file(
     else:
         global_b64 = draw_red_ring_b64(parent_path, x, y)
 
+    if drill_mode == "pov":
+        enhanced_prompt = (
+            f"A realistic first-person point-of-view (POV) perspective photograph looking OUTWARD from the clicked object. "
+            f"The immediate foreground or framing of the image should subtly show parts of the clicked object or its immediate housing/structure to establish the perspective. "
+            f"View details: {drill_topic}."
+        )
+        if style_desc:
+            enhanced_prompt += (
+                f" CRITICAL: To maintain perfect visual continuity, the image MUST use the exact same color palette, "
+                f"texture design, materials, and overall aesthetic described here: {style_desc.strip()}."
+            )
+    else:
+        enhanced_prompt = drill_topic
+
     result = await image_generator.generate(
-        prompt=drill_topic,
+        prompt=enhanced_prompt,
         local_crop_b64=local_b64,
         global_b64=global_b64,
     )

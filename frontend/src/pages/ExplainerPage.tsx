@@ -30,7 +30,7 @@ const STREAM_LABELS: Record<string, string> = {
 
 function pageFromDrillResult(
   data: Record<string, unknown>,
-  fallback: { parentId: string; x: number; y: number; groundingMode: string; visionModel: string }
+  fallback: { parentId: string; x: number; y: number; groundingMode: string; visionModel: string; drillMode: string }
 ): ExplainerPageData {
   return {
     id: data.id as string,
@@ -42,6 +42,7 @@ function pageFromDrillResult(
     depth: data.depth as number | undefined,
     groundingMode: (data.groundingMode as string) ?? fallback.groundingMode,
     visionModel: (data.visionModel as string) ?? fallback.visionModel,
+    drillMode: (data.drillMode as string) ?? fallback.drillMode,
     samConfidence: data.samConfidence as number | null | undefined,
     inputPrompt: data.inputPrompt as string | undefined,
     rawJson: data.rawJson as string | undefined,
@@ -59,6 +60,7 @@ export default function ExplainerPage() {
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [groundingMode, setGroundingMode] = useState<GroundingMode>("red_ring");
   const [visionModel, setVisionModel] = useState<VisionModelKey>("qwen3.5");
+  const [drillMode, setDrillMode] = useState<string>("inside");
   const [sam2Available, setSam2Available] = useState(false);
   const [lastClick, setLastClick] = useState<{ x: number; y: number } | null>(null);
   const [pendingDrill, setPendingDrill] = useState<PendingDrill | null>(null);
@@ -194,6 +196,7 @@ export default function ExplainerPage() {
           y: pendingDrill.click.y,
           groundingMode,
           visionModel,
+          drillMode,
         })
       );
       const auto = autoDrillRef.current;
@@ -261,7 +264,7 @@ export default function ExplainerPage() {
 
     try {
       await streamExplainerPage(
-        { parentId, x, y, customTopic, visionModel, groundingMode, cacheBust },
+        { parentId, x, y, customTopic, visionModel, groundingMode, cacheBust, drillMode },
         (eventType, data) => {
           if (eventType === "complete") {
             finalizeDrillPage(
@@ -271,6 +274,7 @@ export default function ExplainerPage() {
                 y,
                 groundingMode,
                 visionModel,
+                drillMode,
               })
             );
           } else if (eventType === "confirm") {
@@ -375,9 +379,19 @@ export default function ExplainerPage() {
 
   return (
     <div className="explainer-mode">
+      <div className="bg-blobs-container">
+        <div className="bg-grid" />
+        <div className="bg-stars" />
+        <div className="bg-blob blob-orange" />
+        <div className="bg-blob blob-teal" />
+        <div className="bg-blob blob-purple" />
+      </div>
+
       <aside className="explainer-sidebar">
-        <h2>Explainer</h2>
-        <p className="hint">Vision analysis + image generation</p>
+        <div className="sidebar-header">
+          <h2>Explainer</h2>
+          <p className="hint">Vision analysis + image generation</p>
+        </div>
 
         <div className="control-group">
           <label htmlFor="vision-model">Vision model</label>
@@ -404,6 +418,19 @@ export default function ExplainerPage() {
               SAM2 segment{sam2Available ? "" : " (unavailable)"}
             </option>
             <option value="red_ring">Red ring marker</option>
+          </select>
+        </div>
+
+        <div className="control-group">
+          <label htmlFor="drill-mode">Drill mode</label>
+          <select
+            id="drill-mode"
+            value={drillMode}
+            onChange={(e) => setDrillMode(e.target.value)}
+            disabled={phase !== "idle"}
+          >
+            <option value="inside">Inside Zoom (Macro)</option>
+            <option value="pov">POV Perspective (Outward)</option>
           </select>
         </div>
 

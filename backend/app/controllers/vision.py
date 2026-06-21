@@ -43,6 +43,7 @@ def handle_stream_page(req: PageRequest, orchestrator: ExplainerPageWorkflow):
         vision_model=req.visionModel or "qwen3.5",
         grounding_mode=req.groundingMode or default_grounding_mode(),
         custom_topic=req.customTopic,
+        drill_mode=req.drillMode or "inside",
         cache_bust=req.cacheBust,
     )
 
@@ -103,6 +104,7 @@ async def handle_get_page(req: PageRequest, orchestrator: ExplainerPageWorkflow)
             vision_model=req.visionModel or "qwen3.5",
             grounding_mode=req.groundingMode or default_grounding_mode(),
             custom_topic=req.customTopic,
+            drill_mode=req.drillMode or "inside",
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

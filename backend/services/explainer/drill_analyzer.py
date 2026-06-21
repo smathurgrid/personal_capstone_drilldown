@@ -6,11 +6,14 @@ import asyncio
 import base64
 import io
 import re
+import logging
 
 from PIL import Image
 
 from backend.shared.config import Settings
 from backend.shared.llm_client import LLMClient
+
+logger = logging.getLogger(__name__)
 
 _TWO_TASK_PROMPT = """You are an expert technical illustrator analyzing a drill-down selection.
 
@@ -28,13 +31,29 @@ ANALYSIS:
 IMAGE_PROMPT:
 <your generation prompt>"""
 
+_TWO_TASK_POV_PROMPT = """You are an expert cinematic photographer analyzing a drill-down selection.
+
+You receive TWO images:
+1. Full scene with a red circle marking WHERE the user clicked (global context).
+2. Cropped close-up of the region under the click (local detail).
+
+TASK 1 — ANALYSIS: Describe what was clicked, its location, and what its surrounding environment would look like looking outwards from exactly that coordinate.
+TASK 2 — IMAGE PROMPT: Write a detailed prompt for an image generation model to illustrate a first-person point-of-view (POV) perspective looking OUTWARDS from exactly this component's physical coordinates towards its surrounding room, overall environment, or scenery. No text, labels, or annotations in the generated image.
+
+Respond in exactly this format:
+ANALYSIS:
+<your analysis text>
+
+IMAGE_PROMPT:
+<your generation prompt>"""
+
 _LABEL_HINT_PREFIX = (
     "The user selected the label '{label}' at the marked click location. "
     "Confirm or correct the object name in your ANALYSIS, then produce IMAGE_PROMPT.\n\n"
 )
 
 
-def _parse_vlm_sections(raw: str) -> tuple[str, str]:
+def _parse_vlm_sections(raw: str, drill_mode: str = "inside") -> tuple[str, str]:
     analysis = ""
     image_prompt = ""
     analysis_match = re.search(
@@ -47,9 +66,15 @@ def _parse_vlm_sections(raw: str) -> tuple[str, str]:
         image_prompt = prompt_match.group(1).strip()
     if not analysis and not image_prompt:
         analysis = raw.strip()
-        image_prompt = f"Detailed internal cross-section view of the selected region: {analysis[:200]}"
+        if drill_mode == "pov":
+            image_prompt = f"A first-person point-of-view perspective looking outwards from the selected region, photorealistic wide-angle view, showing the surroundings: {analysis[:200]}"
+        else:
+            image_prompt = f"Detailed internal cross-section view of the selected region: {analysis[:200]}"
     elif not image_prompt:
-        image_prompt = f"Detailed internal cross-section of: {analysis[:200]}"
+        if drill_mode == "pov":
+            image_prompt = f"A first-person point-of-view perspective looking outwards from: {analysis[:200]}"
+        else:
+            image_prompt = f"Detailed internal cross-section of: {analysis[:200]}"
     return analysis, image_prompt
 
 
@@ -76,6 +101,7 @@ class DrillAnalyzer:
         *,
         label_hint: str | None = None,
         parent_context: dict | None = None,
+        drill_mode: str = "inside",
     ) -> str:
         parts: list[str] = []
         if parent_context:
@@ -89,8 +115,32 @@ class DrillAnalyzer:
                     parts.append(f"Parent context: {paragraph}")
         if label_hint:
             parts.append(_LABEL_HINT_PREFIX.format(label=label_hint))
-        parts.append(_TWO_TASK_PROMPT)
+        if drill_mode == "pov":
+            parts.append(_TWO_TASK_POV_PROMPT)
+        else:
+            parts.append(_TWO_TASK_PROMPT)
         return "\n".join(parts)
+
+    def _describe_style_reference(self, crop_b64: str) -> str:
+        """Analyze local crop image to extract detailed style, colors, materials, and textures for continuity."""
+        prompt = (
+            "Describe the visual style, color palette, artistic medium, lighting, textures, "
+            "and materials in this image. Keep it concise (under 50 words). Focus only on "
+            "visual aesthetic elements to guide an image generator to maintain perfect visual "
+            "continuity. Do not mention any text, labels, or annotations."
+        )
+        try:
+            return self._llm.chat_completion(
+                self._vision_model,
+                prompt,
+                images=[crop_b64],
+                temperature=0.1,
+                timeout=120,
+                num_predict=150,
+            ).strip()
+        except Exception as exc:
+            logger.warning("Failed to generate style reference description: %s", exc)
+            return ""
 
     def _run_dual_image_vlm(self, global_b64: str, local_b64: str, prompt: str) -> str:
         return self._llm.chat_completion(
@@ -99,6 +149,7 @@ class DrillAnalyzer:
             images=[global_b64, local_b64],
             temperature=0.1,
             timeout=300,
+            num_predict=350,
         )
 
     async def analyze_drill(
@@ -108,18 +159,38 @@ class DrillAnalyzer:
         *,
         label_hint: str | None = None,
         parent_context: dict | None = None,
+        drill_mode: str = "inside",
     ) -> dict[str, str]:
         loop = asyncio.get_event_loop()
-        prompt = self._build_prompt(label_hint=label_hint, parent_context=parent_context)
+        prompt = self._build_prompt(
+            label_hint=label_hint,
+            parent_context=parent_context,
+            drill_mode=drill_mode,
+        )
 
-        def run() -> str:
-            return self._run_dual_image_vlm(global_b64, local_b64, prompt)
+        def run() -> tuple[str, str]:
+            try:
+                global_img = Image.open(io.BytesIO(base64.b64decode(global_b64)))
+                local_img = Image.open(io.BytesIO(base64.b64decode(local_b64)))
+                resized_global = self._resize_for_vlm(global_img)
+                resized_local = self._resize_for_vlm(local_img)
+            except Exception as resize_exc:
+                logger.warning("Failed to resize images for VLM: %s", resize_exc)
+                resized_global = global_b64
+                resized_local = local_b64
 
-        raw = await loop.run_in_executor(None, run)
-        analysis, image_prompt = _parse_vlm_sections(raw)
+            raw = self._run_dual_image_vlm(resized_global, resized_local, prompt)
+            style_desc = ""
+            if drill_mode == "pov":
+                style_desc = self._describe_style_reference(resized_local)
+            return raw, style_desc
+
+        raw, style_desc = await loop.run_in_executor(None, run)
+        analysis, image_prompt = _parse_vlm_sections(raw, drill_mode=drill_mode)
         return {
             "analysis": analysis,
             "image_prompt": image_prompt,
             "global_b64": global_b64,
             "local_crop_b64": local_b64,
+            "style_desc": style_desc,
         }

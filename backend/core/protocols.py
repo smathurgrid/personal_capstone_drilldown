@@ -55,6 +55,7 @@ class ExplainerPageStore(Protocol):
         custom_topic: str | None = None,
         *,
         include_custom_topic_in_hash: bool = False,
+        drill_mode: str = "inside",
     ) -> str: ...
 
     def drill_page_paths(self, page_id: str) -> tuple[Any, Any]: ...
@@ -85,6 +86,7 @@ class ExplainerPageWorkflow(Protocol):
         vision_model: str = "qwen3.5",
         grounding_mode: str = "sam2",
         custom_topic: str | None = None,
+        drill_mode: str = "inside",
     ): ...
 
     def stream_page(
@@ -96,4 +98,5 @@ class ExplainerPageWorkflow(Protocol):
         vision_model: str = "qwen3.5",
         grounding_mode: str = "sam2",
         custom_topic: str | None = None,
+        drill_mode: str = "inside",
     ) -> AsyncIterator[str]: ...

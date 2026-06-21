@@ -13,6 +13,7 @@ class PageRequest(BaseModel):
     customTopic: Optional[str] = None
     visionModel: Optional[str] = "qwen3.5"
     groundingMode: Optional[str] = None
+    drillMode: Optional[str] = "inside"
     cacheBust: Optional[str] = None
 
 

@@ -35,9 +35,10 @@ class PageRepository:
         *,
         include_custom_topic_in_hash: bool = False,
         cache_bust: str | None = None,
+        drill_mode: str = "inside",
     ) -> str:
         rx, ry = round(x, coord_precision), round(y, coord_precision)
-        key = f"drill_{parent_id}_{rx}_{ry}_{vision_model}_{grounding_mode}"
+        key = f"drill_{parent_id}_{rx}_{ry}_{vision_model}_{grounding_mode}_{drill_mode}"
         if include_custom_topic_in_hash and custom_topic:
             key += f"_{custom_topic}"
         if cache_bust:

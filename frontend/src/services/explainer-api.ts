@@ -108,6 +108,7 @@ export async function streamExplainerPage(
     groundingMode?: string;
     visionModel?: string;
     cacheBust?: string;
+    drillMode?: string;
   },
   onEvent: (type: string, data: Record<string, unknown>) => void
 ) {

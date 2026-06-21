@@ -7,20 +7,31 @@ from backend.services.ecommerce.catalog_service import EcommerceCatalogService
 from backend.shared.config import settings
 
 
+_search_service_cached = None
+_search_service_error = None
+_search_service_checked = False
+
+
 def get_ecommerce_module_status(product_search: ProductSearch | None = None) -> dict:
+    global _search_service_cached, _search_service_error, _search_service_checked
+
     from backend.app.dependencies import get_product_search_service
 
     qdrant_ready = settings.QDRANT_PATH.exists()
     dataset_ready = settings.DATASET_IMAGES_DIR.exists() and any(
         settings.DATASET_IMAGES_DIR.glob("*")
     )
-    search_ok = False
-    search_err = None
-    try:
-        (product_search or get_product_search_service())
-        search_ok = True
-    except Exception as exc:
-        search_err = str(exc)
+
+    if not _search_service_checked:
+        try:
+            _search_service_cached = (product_search or get_product_search_service())
+            _search_service_error = None
+        except Exception as exc:
+            _search_service_error = str(exc)
+        _search_service_checked = True
+
+    search_ok = _search_service_cached is not None
+    search_err = _search_service_error
 
     return {
         "module": "ecommerce",

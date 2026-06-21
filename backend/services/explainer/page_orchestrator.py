@@ -48,6 +48,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         grounding_mode: str = "sam2",
         custom_topic: str | None = None,
         cache_bust: str | None = None,
+        drill_mode: str = "inside",
     ):
         if query:
             page_id, output_path = self._pages.initial_page_paths(query)
@@ -69,6 +70,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 coord_precision=self._DRILL_COORD_PRECISION,
                 include_custom_topic_in_hash=self._DRILL_INCLUDE_CUSTOM_TOPIC_IN_HASH,
                 cache_bust=cache_bust,
+                drill_mode=drill_mode,
             )
 
         raise ValueError("Invalid parameters for page generation")
@@ -83,6 +85,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         grounding_mode: str = "sam2",
         custom_topic: str | None = None,
         cache_bust: str | None = None,
+        drill_mode: str = "inside",
     ):
         if query:
             yield format_sse_event("generating", {"message": "Generating initial image..."})
@@ -105,6 +108,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 grounding_mode,
                 custom_topic,
                 cache_bust=cache_bust,
+                drill_mode=drill_mode,
             ):
                 yield event
             return
@@ -123,6 +127,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         coord_precision: int,
         include_custom_topic_in_hash: bool,
         cache_bust: str | None = None,
+        drill_mode: str = "inside",
     ):
         page_id, output_path, metadata_path, parent_path, grounding, vision_result, crop_path = (
             await self._prepare_drill(
@@ -135,6 +140,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 coord_precision=coord_precision,
                 include_custom_topic_in_hash=include_custom_topic_in_hash,
                 cache_bust=cache_bust,
+                drill_mode=drill_mode,
             )
         )
 
@@ -170,6 +176,8 @@ class PageOrchestrator(ExplainerPageWorkflow):
             grounding.marked_path,
             crop_path,
             result_metadata,
+            drill_mode=drill_mode,
+            style_desc=vision_result.get("style_desc", ""),
         )
 
     async def _stream_drill(
@@ -181,6 +189,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         grounding_mode: str,
         custom_topic: str | None,
         cache_bust: str | None = None,
+        drill_mode: str = "inside",
     ):
         page_id, output_path, metadata_path, parent_path, grounding, vision_result, crop_path = (
             await self._prepare_drill(
@@ -194,6 +203,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 include_custom_topic_in_hash=self._DRILL_INCLUDE_CUSTOM_TOPIC_IN_HASH,
                 emit_sse=True,
                 cache_bust=cache_bust,
+                drill_mode=drill_mode,
             )
         )
 
@@ -242,6 +252,8 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 "marked_path": grounding.marked_path,
                 "crop_path": crop_path,
                 "result_metadata": result_metadata,
+                "drill_mode": drill_mode,
+                "style_desc": vision_result.get("style_desc", ""),
             },
         )
 
@@ -287,6 +299,8 @@ class PageOrchestrator(ExplainerPageWorkflow):
             pending.get("marked_path"),
             pending.get("crop_path"),
             result_metadata,
+            drill_mode=pending.get("drill_mode", "inside"),
+            style_desc=pending.get("style_desc", ""),
         )
 
     def cancel_drill(self, page_id: str) -> None:
@@ -357,6 +371,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         include_custom_topic_in_hash: bool,
         emit_sse: bool = False,
         cache_bust: str | None = None,
+        drill_mode: str = "inside",
     ):
         hash_key = self._pages.drill_hash_key(
             parent_id,
@@ -368,6 +383,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
             custom_topic,
             include_custom_topic_in_hash=include_custom_topic_in_hash,
             cache_bust=cache_bust,
+            drill_mode=drill_mode,
         )
         page_id = self._pages.compute_content_hash(hash_key)
         output_path, metadata_path = self._pages.drill_page_paths(page_id)
@@ -401,6 +417,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
             parent_context=parent_context,
             segment_path=grounding.segment_path,
             marked_path=grounding.marked_path,
+            drill_mode=drill_mode,
         )
 
         return page_id, output_path, metadata_path, parent_path, grounding, vision_result, crop_path

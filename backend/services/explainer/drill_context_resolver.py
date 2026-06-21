@@ -71,6 +71,7 @@ class DrillContextResolver:
             "global_b64": result.get("global_b64"),
             "local_crop_b64": result.get("local_crop_b64"),
             "crop_preview_b64": result.get("local_crop_b64"),
+            "style_desc": result.get("style_desc", ""),
         }
 
     async def _resolve_dual_image(
@@ -83,6 +84,7 @@ class DrillContextResolver:
         marked_path: str | None = None,
         label_hint: str | None = None,
         parent_context: dict | None = None,
+        drill_mode: str = "inside",
     ) -> tuple[dict, None]:
         raw, w, h = self._read_parent_bytes(parent_path)
         x_px = int(x * w)
@@ -105,6 +107,7 @@ class DrillContextResolver:
             local_b64,
             label_hint=label_hint,
             parent_context=parent_context,
+            drill_mode=drill_mode,
         )
         return self._dual_result_to_vision(
             result,
@@ -125,6 +128,7 @@ class DrillContextResolver:
         *,
         segment_path: str | None = None,
         marked_path: str | None = None,
+        drill_mode: str = "inside",
     ):
         if vision_model == "none":
             crop_b64 = path_to_b64(parent_path)
@@ -187,6 +191,7 @@ class DrillContextResolver:
                 marked_path=marked_path,
                 label_hint=custom_topic,
                 parent_context=parent_context,
+                drill_mode=drill_mode,
             )
 
         return await self._resolve_dual_image(
@@ -196,4 +201,5 @@ class DrillContextResolver:
             segment_path=segment_path,
             marked_path=marked_path,
             parent_context=parent_context,
+            drill_mode=drill_mode,
         )

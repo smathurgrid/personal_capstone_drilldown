@@ -21,3 +21,24 @@ def test_parse_vlm_sections():
     analysis, prompt = _parse_vlm_sections(raw)
     assert "engine block" in analysis
     assert "Cross-section" in prompt
+
+
+def test_parse_vlm_sections_pov_mode_fallback():
+    raw_empty = ""
+    analysis, prompt = _parse_vlm_sections(raw_empty, drill_mode="pov")
+    assert "first-person" in prompt
+    assert "scenery" not in prompt or "first-person" in prompt
+
+    raw_partial = "ANALYSIS:\na scenic window looking out at a harbor"
+    analysis2, prompt2 = _parse_vlm_sections(raw_partial, drill_mode="pov")
+    assert "harbor" in analysis2
+    assert "first-person" in prompt2
+
+
+def test_drill_analyzer_pov_prompt_building():
+    from backend.shared.config import settings
+    from backend.services.explainer.drill_analyzer import DrillAnalyzer
+    analyzer = DrillAnalyzer(settings)
+    prompt = analyzer._build_prompt(drill_mode="pov")
+    assert "first-person" in prompt
+    assert "OUTWARDS" in prompt
