@@ -7,7 +7,8 @@ interface ProductPanelProps {
   onClose: () => void;
   mode: Mode;
   drillResult: DrillResult | null;
-  onDrillDown: (hotspot: Hotspot) => void;
+  onDrillDown: (hotspot?: Hotspot) => void;
+  customClickPosition?: { x: number; y: number } | null;
 }
 
 export default function ProductPanel({
@@ -15,6 +16,7 @@ export default function ProductPanel({
   onClose,
   drillResult,
   onDrillDown,
+  customClickPosition,
 }: ProductPanelProps) {
   const [activeTabId, setActiveTabId] = useState<string>('all-labels');
 
@@ -23,7 +25,7 @@ export default function ProductPanel({
     setActiveTabId('all-labels');
   }, [hotspot]);
 
-  if (!hotspot || !drillResult) {
+  if (!drillResult) {
     return (
       <aside className="w-[420px] min-w-[420px] max-w-[420px] shrink-0 glass-panel shadow-[-20px_0_40px_rgba(0,0,0,0.3)] z-[501] flex flex-col h-full p-8 items-center justify-center text-center animate-in slide-in-from-right duration-300">
         <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 border border-white/10 animate-pulse">
@@ -37,9 +39,26 @@ export default function ProductPanel({
     );
   }
 
+  // Show panel if there's either a hotspot or a custom click position
+  const hasSelection = hotspot || customClickPosition;
+
   const allHotspots = drillResult.hotspots || [];
   const imageDescription = drillResult.metadata?.explainer_paragraph || drillResult.subtitle || 'No description available.';
-  const imageTitle = drillResult.title || 'Image Analysis'; // Use image title, not component title
+  const imageTitle = drillResult.title || 'Image Analysis';
+
+  if (!hasSelection) {
+    return (
+      <aside className="w-[420px] min-w-[420px] max-w-[420px] shrink-0 glass-panel shadow-[-20px_0_40px_rgba(0,0,0,0.3)] z-[501] flex flex-col h-full p-8 items-center justify-center text-center animate-in slide-in-from-right duration-300">
+        <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 border border-white/10 animate-pulse">
+          <Sparkles className="w-6 h-6 text-secondary" />
+        </div>
+        <h3 className="font-serif text-lg text-on-surface font-bold mb-2">Select a Target Spot</h3>
+        <p className="text-on-surface-variant text-sm font-light leading-relaxed max-w-[260px]">
+          Click any marker on the image or anywhere on the canvas to drill down into that area.
+        </p>
+      </aside>
+    );
+  }
 
   // Define tabs
   const tabs = [
@@ -98,7 +117,7 @@ export default function ProductPanel({
             
             <div className="space-y-3 flex-shrink-0">
               {allHotspots.map((spot, idx) => {
-                const isCurrentSpot = spot.id === hotspot.id;
+                const isCurrentSpot = hotspot && spot.id === hotspot.id;
                 return (
                   <div
                     key={spot.id}
@@ -144,8 +163,8 @@ export default function ProductPanel({
             <div className="mt-4 flex-shrink-0">
               <button
                 onClick={() => {
-                  console.log('[ProductPanel] Generate Drilldown button clicked for current selection:', hotspot.title);
-                  onDrillDown(hotspot);
+                  console.log('[ProductPanel] Generate Drilldown button clicked for:', hotspot ? hotspot.title : 'custom position');
+                  onDrillDown(hotspot || undefined);
                 }}
                 className="w-full py-3 px-4 bg-orange-glow hover:bg-[#E0784C] text-white font-mono text-xs uppercase font-bold tracking-widest rounded-lg transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg flex items-center justify-center gap-2"
               >
@@ -153,7 +172,7 @@ export default function ProductPanel({
                 Generate Drilldown
               </button>
               <p className="text-[10px] text-on-surface-variant text-center mt-2 font-mono">
-                Click to drill into selected area
+                {hotspot ? 'Drill into selected label' : 'Drill into custom position'}
               </p>
             </div>
           </>

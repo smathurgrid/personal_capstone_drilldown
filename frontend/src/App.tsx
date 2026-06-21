@@ -31,6 +31,7 @@ export default function App() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [currentStageId, setCurrentStageId] = useState<string>('');
+  const [customClickPosition, setCustomClickPosition] = useState<{ x: number; y: number } | null>(null);
 
   // Handle triggering a drill exploration
   const handleTriggerDrill = async (query: string, mode: Mode, image?: File) => {
@@ -118,6 +119,9 @@ export default function App() {
 
   // Handle hotspot selection - if clicking same hotspot, drill down
   const handleHotspotSelect = async (hotspotId: string) => {
+    // Clear custom click position when selecting a hotspot
+    setCustomClickPosition(null);
+    
     // If clicking the already selected hotspot, drill down
     if (activeHotspotId === hotspotId && currentDrill) {
       const hotspot = currentDrill.hotspots.find(h => h.id === hotspotId);
@@ -133,11 +137,37 @@ export default function App() {
     setActiveHotspotId(hotspotId);
   };
 
-  // Handle drill-down into a hotspot
-  const handleDrillDown = async (hotspot: Hotspot) => {
+  // Handle canvas click (clicking anywhere on image, not on a hotspot)
+  const handleCanvasClick = (x: number, y: number) => {
+    console.log('[App] Canvas clicked at position:', { x, y });
+    setCustomClickPosition({ x, y });
+    // Deselect any active hotspot
+    setActiveHotspotId(null);
+  };
+
+  // Handle drill-down into a hotspot or custom position
+  const handleDrillDown = async (hotspot?: Hotspot) => {
     if (!currentDrill || isLoading) return;
 
-    console.log('[App] 🚀 Starting drilldown into:', hotspot.title, 'at position:', hotspot.x, hotspot.y);
+    let x: number, y: number, title: string;
+
+    if (hotspot) {
+      // Drilling from a hotspot
+      x = hotspot.x;
+      y = hotspot.y;
+      title = hotspot.title;
+      console.log('[App] 🚀 Starting drilldown into hotspot:', title, 'at position:', x, y);
+    } else if (customClickPosition) {
+      // Drilling from custom canvas click
+      x = customClickPosition.x;
+      y = customClickPosition.y;
+      title = 'Custom Position';
+      console.log('[App] 🚀 Starting drilldown at custom position:', x, y);
+    } else {
+      console.warn('[App] No hotspot or custom position to drill into');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -145,15 +175,15 @@ export default function App() {
       console.log('[App] ⚠️ This may take 2-5 minutes for image generation...');
       
       // Allow up to 6 minutes for backend to complete
-      // (Backend has 5-minute timeout, so frontend should be longer)
       const childResult = await drillAdapter.drillDown(
         currentDrill.id,
-        hotspot.x,
-        hotspot.y
+        x,
+        y
       );
 
       console.log('[App] ✅ Drilldown complete! New image received with', childResult.hotspots.length, 'hotspots');
       setCurrentDrill(childResult);
+      setCustomClickPosition(null); // Clear custom position after successful drill
 
       // Auto-select first hotspot of child
       if (childResult.hotspots && childResult.hotspots.length > 0) {
@@ -398,6 +428,8 @@ export default function App() {
                   hotspots={currentDrill.hotspots}
                   activeHotspotId={activeHotspotId}
                   onSelectHotspot={handleHotspotSelect}
+                  onCanvasClick={handleCanvasClick}
+                  customClickPosition={customClickPosition}
                   isLoading={isLoading}
                   onGoBack={handleClearSearch}
                   breadcrumbs={currentDrill.breadcrumbs}
@@ -444,10 +476,14 @@ export default function App() {
 
             <ProductPanel
               hotspot={currentDrill.hotspots.find((h) => h.id === activeHotspotId) || null}
-              onClose={() => setActiveHotspotId(null)}
+              onClose={() => {
+                setActiveHotspotId(null);
+                setCustomClickPosition(null);
+              }}
               mode={currentDrill.mode}
               drillResult={currentDrill}
               onDrillDown={handleDrillDown}
+              customClickPosition={customClickPosition}
             />
           </div>
         )}

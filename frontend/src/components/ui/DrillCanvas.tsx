@@ -9,6 +9,8 @@ interface DrillCanvasProps {
   hotspots: Hotspot[];
   activeHotspotId: string | null;
   onSelectHotspot: (id: string) => void;
+  onCanvasClick: (x: number, y: number) => void;
+  customClickPosition: { x: number; y: number } | null; // Add this prop to show the marker
   isLoading: boolean;
   onGoBack: () => void;
   breadcrumbs: string[];
@@ -21,6 +23,8 @@ export default function DrillCanvas({
   hotspots,
   activeHotspotId,
   onSelectHotspot,
+  onCanvasClick,
+  customClickPosition,
   isLoading,
   onGoBack,
   breadcrumbs,
@@ -38,6 +42,13 @@ export default function DrillCanvas({
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+
+    // Calculate percentage position relative to image
+    const xPercent = (x / rect.width) * 100;
+    const yPercent = (y / rect.height) * 100;
+
+    // Notify parent of click position
+    onCanvasClick(xPercent, yPercent);
 
     const newRipple = {
       id: rippleIdCounter.current++,
@@ -282,6 +293,37 @@ export default function DrillCanvas({
             );
           }
         })}
+
+        {/* Custom click position marker - orange circle matching label markers */}
+        {!isLoading && customClickPosition && (
+          <div
+            style={{
+              top: `${customClickPosition.y}%`,
+              left: `${customClickPosition.x}%`,
+              transform: 'translate(-50%, -50%)',
+            }}
+            className="absolute z-50 p-3 group/custom cursor-pointer"
+          >
+            {/* Active orange marker with pulsing rings - same style as active hotspot */}
+            <div className="relative w-14 h-14 flex items-center justify-center">
+              <div className="absolute w-14 h-14 rounded-full border-2 border-orange-glow/50 pulse-ring-custom pointer-events-none" />
+              <div className="w-4 h-4 bg-orange-glow rounded-full shadow-[0_0_15px_rgba(255,140,66,0.9)] z-10" />
+            </div>
+
+            {/* Tooltip for custom position */}
+            <div className="absolute top-12 left-1/2 -translate-x-1/2 w-56 p-3 bg-navy-mid/95 backdrop-blur-md border border-outline-variant/30 rounded-lg shadow-2xl opacity-0 group-hover/custom:opacity-100 group-hover/custom:translate-y-1 transition-all duration-300 pointer-events-none z-50 text-left">
+              <h4 className="font-mono text-xs font-bold text-secondary mb-1">
+                Custom Position
+              </h4>
+              <p className="text-[11px] text-on-surface-variant leading-relaxed mb-2">
+                Click "Generate Drilldown" to explore this area
+              </p>
+              <p className="text-[9px] text-orange-glow/80 font-mono">
+                📍 Position: {customClickPosition.x.toFixed(1)}%, {customClickPosition.y.toFixed(1)}%
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
