@@ -35,11 +35,14 @@ class PageRepository:
         *,
         include_custom_topic_in_hash: bool = False,
         cache_bust: str | None = None,
+        kb_id: str | None = None,
     ) -> str:
         rx, ry = round(x, coord_precision), round(y, coord_precision)
         key = f"drill_{parent_id}_{rx}_{ry}_{vision_model}_{grounding_mode}"
         if include_custom_topic_in_hash and custom_topic:
             key += f"_{custom_topic}"
+        if kb_id:
+            key += f"_kb_{kb_id}"
         if cache_bust:
             key += f"_{cache_bust}"
         return key
@@ -85,7 +88,14 @@ class PageRepository:
         if metadata_path.exists():
             with metadata_path.open() as handle:
                 stored = json.load(handle)
-        stored["metadata"] = metadata
+        # A label scan must not wipe KB enrichment fields set during the drill.
+        prev_meta = stored.get("metadata")
+        merged = dict(metadata)
+        if isinstance(prev_meta, dict):
+            for field in ("kb_citation", "kb_score", "kb_mode", "kb_low_confidence", "kb_best_score"):
+                if field not in merged and field in prev_meta:
+                    merged[field] = prev_meta[field]
+        stored["metadata"] = merged
         stored["rawJson"] = raw_json
         stored["visionModel"] = vision_model
         stored["scanMode"] = scan_mode

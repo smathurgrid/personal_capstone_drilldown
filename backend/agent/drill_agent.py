@@ -28,8 +28,10 @@ async def get_llm_api_key(provider: str) -> str:
 
 
 def create_drill_agent(session_id: str | None = None):
-    """Return a configured PiAgent context manager for F7 orchestration."""
+    """Return a configured PiAgent + session id + trace logger for F7 orchestration."""
     from pi_agent import LocalModelConfig, PiAgent, PiAgentOptions
+
+    from backend.agent.trace_logger import AgentTraceLogger
 
     llm = get_llm_client()
     orchestrator_model = llm.orchestrator_model_id()
@@ -43,12 +45,31 @@ def create_drill_agent(session_id: str | None = None):
     tools = build_tool_definitions()
     sid = session_id or str(uuid.uuid4())
     prompt = f"{SYSTEM_PROMPT}\n\nActive session_id for all tool calls: {sid}"
-    return PiAgent(
+
+    trace = AgentTraceLogger(sid)
+
+    async def before_tool_call(ctx: dict):
+        trace.tool_start(ctx.get("id", ""), ctx.get("name", ""), ctx.get("params") or {})
+        return None
+
+    async def after_tool_call(ctx: dict):
+        trace.tool_end(
+            ctx.get("id", ""),
+            ctx.get("name", ""),
+            ctx.get("result"),
+            bool(ctx.get("is_error")),
+        )
+        return None
+
+    agent = PiAgent(
         PiAgentOptions(
             system_prompt=prompt,
             model=model,
             tools=tools,
             get_api_key=get_llm_api_key,
             tool_execution="sequential",
+            before_tool_call=before_tool_call,
+            after_tool_call=after_tool_call,
         )
-    ), sid
+    )
+    return agent, sid, trace

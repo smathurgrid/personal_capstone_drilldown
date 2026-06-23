@@ -55,6 +55,8 @@ class ExplainerPageStore(Protocol):
         custom_topic: str | None = None,
         *,
         include_custom_topic_in_hash: bool = False,
+        cache_bust: str | None = None,
+        kb_id: str | None = None,
     ) -> str: ...
 
     def drill_page_paths(self, page_id: str) -> tuple[Any, Any]: ...

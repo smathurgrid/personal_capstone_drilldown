@@ -665,6 +665,47 @@
   font-size: 0.72rem;
 }
 
+/* Prominent KB source banner at the top of the metadata panel */
+.kb-source-banner {
+  background: rgba(237, 106, 44, 0.12);
+  border: 1px solid rgba(237, 106, 44, 0.45);
+  border-radius: 6px;
+  padding: 0.55rem 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.82rem;
+  color: #f3d9c9;
+}
+
+.kb-source-banner strong {
+  color: #ed6a2c;
+}
+
+.kb-source-weak {
+  background: rgba(139, 149, 168, 0.08);
+  border-color: rgba(139, 149, 168, 0.35);
+  color: #8b95a8;
+  font-style: italic;
+}
+
+/* Citation line inside the drill-confirm modal */
+.drill-confirm-citation {
+  font-size: 0.82rem;
+  padding: 0.45rem 0.6rem;
+  margin: 0.25rem 0 0.5rem;
+  border-radius: 0 4px 4px 0;
+}
+
+.drill-confirm-citation strong {
+  color: #ed6a2c;
+}
+
+.kb-citation-none {
+  color: #8b95a8;
+  font-style: italic;
+  border-left: 3px solid #3a4258;
+  padding-left: 0.6rem;
+}
+
 .spin {
   animation: explainer-spin 1s linear infinite;
 }

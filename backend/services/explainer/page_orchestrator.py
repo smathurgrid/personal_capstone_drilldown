@@ -373,6 +373,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
             custom_topic,
             include_custom_topic_in_hash=include_custom_topic_in_hash,
             cache_bust=cache_bust,
+            kb_id=kb_id,
         )
         page_id = self._pages.compute_content_hash(hash_key)
         output_path, metadata_path = self._pages.drill_page_paths(page_id)

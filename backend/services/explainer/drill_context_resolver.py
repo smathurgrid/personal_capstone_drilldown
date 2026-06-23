@@ -17,46 +17,62 @@ from backend.shared.image_utils import draw_red_ring_b64, path_to_b64, prepare_d
 logger = logging.getLogger(__name__)
 
 
-async def _enrich_with_kb(result: dict, kb_id: str) -> dict:
-    """Query the KB with the identified component and enrich result in-place."""
-    from backend.services.knowledge_base.retriever import search_kb
+async def _enrich_with_kb(result: dict, kb_id: str, label_hint: str | None = None) -> dict:
+    """Hybrid-search the KB, re-join the best page(s), and enrich result in-place.
+
+    The retrieval query prefers the concise component label (e.g. "Control Panel")
+    over the VLM's verbose image description. The full description often invents
+    details the manual doesn't contain (e.g. "LCD screen, microcontroller, capacitors"),
+    which drags retrieval to the wrong page. The short label matches manual wording far
+    better. The object name from the analysis is appended as a light fallback.
+    """
+    from backend.services.knowledge_base.retriever import search_kb_pages
 
     analysis = result.get("analysis", "")
     image_prompt = result.get("image_prompt", "")
 
-    # Build a focused search query from the VLM's analysis
-    query = analysis[:300] if analysis else image_prompt[:300]
+    # Concise label first; fall back to the object identification (first sentence of
+    # analysis), then the analysis itself. Never lead with the verbose generation prompt.
+    label = (label_hint or "").strip()
+    object_name = analysis.split(".")[0].strip() if analysis else ""
+    query = label or object_name or analysis[:120] or image_prompt[:120]
     if not query.strip():
         return result
 
-    hits = await search_kb(query, kb_id, str(settings.KB_QDRANT_PATH), top_k=4)
-    if not hits:
+    pages = await search_kb_pages(query, kb_id, str(settings.KB_QDRANT_PATH), top_pages=2)
+    if not pages:
         logger.info("KB search returned no results for kb_id=%s", kb_id)
         return result
 
-    # Pick the top hit (highest score)
-    top = hits[0]
-    remaining = hits[1:]
+    # Top page = full re-joined context block (prose + table rows + figure captions)
+    top = pages[0]
+    remaining = pages[1:]
 
-    # Enrich image prompt with real KB facts
-    kb_facts = top["text"]
+    # Confidence floor — a weak top match is likely the wrong page. Don't cite it and
+    # don't ground generation on it; surface a low-confidence signal instead.
+    if top["score"] < settings.KB_MIN_SCORE:
+        result["kb_low_confidence"] = True
+        result["kb_best_score"] = top["score"]
+        logger.info("KB low-confidence match (%.3f < %.2f) for kb_id=%s — no citation attached",
+                    top["score"], settings.KB_MIN_SCORE, kb_id)
+        return result
+
+    # Enrich image prompt with the verified page context
     result["image_prompt"] = (
-        f"{image_prompt}\n\nAdditional verified context: {kb_facts[:400]}"
+        f"{image_prompt}\n\nAdditional verified context: {top['text'][:400]}"
     )
 
-    # Build citation string
-    citation = f"{top['source_name']}, page {top['page_num']}"
-
-    # Add KB fields to result so they flow into vision dict
+    # Add KB fields to result so they flow into the vision dict
     result["kb_description"] = top["text"]
-    result["kb_citation"] = citation
+    result["kb_citation"] = top["citation"]
     result["kb_score"] = top["score"]
     result["kb_extra_hits"] = [
-        {"text": h["text"][:200], "page_num": h["page_num"], "source_name": h["source_name"]}
-        for h in remaining
+        {"text": p["text"][:200], "page_num": p["page_num"], "source_name": p["source_name"]}
+        for p in remaining
     ]
 
-    logger.info("KB enriched drill: source=%s page=%d score=%.3f", top["source_name"], top["page_num"], top["score"])
+    logger.info("KB enriched drill: source=%s page=%s score=%.3f",
+                top["source_name"], top["page_num"], top["score"])
     return result
 
 
@@ -105,6 +121,8 @@ class DrillContextResolver:
         kb_description = result.get("kb_description")
         kb_citation = result.get("kb_citation")
         kb_score = result.get("kb_score")
+        kb_low_confidence = result.get("kb_low_confidence")
+        kb_best_score = result.get("kb_best_score")
 
         metadata: dict = {
             "object": object_name,
@@ -116,6 +134,10 @@ class DrillContextResolver:
             metadata["kb_citation"] = kb_citation
             metadata["kb_score"] = kb_score
             metadata["kb_mode"] = True
+        elif kb_low_confidence:
+            metadata["kb_mode"] = True
+            metadata["kb_low_confidence"] = True
+            metadata["kb_best_score"] = kb_best_score
 
         return {
             "drill_topic": image_prompt,
@@ -172,7 +194,7 @@ class DrillContextResolver:
 
         # KB enrichment — only when kb_id is provided
         if kb_id:
-            result = await _enrich_with_kb(result, kb_id)
+            result = await _enrich_with_kb(result, kb_id, label_hint=label_hint)
 
         return self._dual_result_to_vision(
             result,

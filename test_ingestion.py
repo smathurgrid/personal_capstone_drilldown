@@ -42,13 +42,13 @@ async def main(pdf_path: str) -> None:
 
         by_type: dict[str, int] = {}
         for e in elements:
-            by_type[e["type"]] = by_type.get(e["type"], 0) + 1
+            by_type[e["zone"]] = by_type.get(e["zone"], 0) + 1
 
         print(f"    Total elements: {len(elements)}")
         for t, n in sorted(by_type.items()):
             print(f"    {t:10s}: {n}")
 
-        figures = [e for e in elements if e["type"] == "figure"]
+        figures = [e for e in elements if e["zone"] == "figure"]
         if figures:
             print(f"\n[2] Testing VLM figure description ({len(figures)} figures)...")
             from backend.services.knowledge_base.ingestion import _describe_figure

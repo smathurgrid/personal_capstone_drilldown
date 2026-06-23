@@ -99,7 +99,7 @@ async def run_pi_agent_drill(
     """pi-agent-core drives the tool chain via Reason→Act→Observe loop."""
     from backend.agent.drill_agent import create_drill_agent
 
-    agent, sid = create_drill_agent()
+    agent, sid, trace = create_drill_agent()
     if parent_image_b64:
         agent_tools.register_session(sid, parent_image_b64, max_depth)
     else:
@@ -125,16 +125,33 @@ async def run_pi_agent_drill(
     try:
         async with agent:
             yield _sse("status", {"phase": "agent_start"})
+            reasoning_buf: list[str] = []
+            thinking_buf: list[str] = []
             async for event in agent.prompt(prompt):
                 etype = event.get("type")
-                if etype == "tool_execution_start":
+                if etype == "message_update":
+                    ae = event.get("assistantMessageEvent", {}) or {}
+                    if ae.get("type") == "text_delta":
+                        reasoning_buf.append(ae.get("delta", ""))
+                    elif ae.get("type") == "thinking_delta":
+                        thinking_buf.append(ae.get("delta", ""))
+                elif etype == "tool_execution_start":
                     yield _sse(
                         "tool_start",
                         {"tool": event.get("toolName"), "params": event.get("params", {})},
                     )
                 elif etype == "tool_execution_end":
                     yield _sse("tool_end", {"tool": event.get("toolName")})
+                elif etype == "turn_end":
+                    if thinking_buf:
+                        trace.reasoning("".join(thinking_buf), kind="thinking")
+                        thinking_buf.clear()
+                    if reasoning_buf:
+                        trace.reasoning("".join(reasoning_buf), kind="text")
+                        reasoning_buf.clear()
+                    trace.turn_end(event.get("stopReason"))
                 elif etype == "agent_end":
+                    trace.agent_event("agent_end")
                     yield _sse("agent_end", {})
 
             chain = agent_tools.get_session_chain(sid)
@@ -146,4 +163,5 @@ async def run_pi_agent_drill(
     except Exception as exc:
         yield _sse("error", {"message": str(exc), "session_id": sid})
     finally:
+        trace.close()
         agent_tools.clear_session(sid)

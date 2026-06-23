@@ -22,6 +22,8 @@ export interface ExplainerPage {
     kb_citation?: string;
     kb_score?: number;
     kb_mode?: boolean;
+    kb_low_confidence?: boolean;
+    kb_best_score?: number;
   };
   rawJson?: string;
   isStreaming?: boolean;

@@ -27,3 +27,4 @@ docling>=2.0.0
 
 # Vision SAM2 (optional — set SAM2_PATH)
 # numpy installed via torch/sam2 deps
+fastembed

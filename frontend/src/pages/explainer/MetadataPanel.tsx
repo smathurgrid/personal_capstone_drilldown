@@ -28,6 +28,22 @@ export default function MetadataPanel({ page, groundingLabel }: Props) {
 
   return (
     <div className="metadata-panel">
+      {meta.kb_citation ? (
+        <div className="kb-source-banner">
+          📄 <strong>Source:</strong> {meta.kb_citation as string}
+          {meta.kb_score != null && (
+            <span className="kb-score"> · {Math.round((meta.kb_score as number) * 100)}% match</span>
+          )}
+        </div>
+      ) : meta.kb_low_confidence ? (
+        <div className="kb-source-banner kb-source-weak">
+          No strong manual match
+          {meta.kb_best_score != null && (
+            <span className="kb-score"> (best {Math.round((meta.kb_best_score as number) * 100)}%)</span>
+          )}
+        </div>
+      ) : null}
+
       <div className="metadata-tabs">
         {(
           [

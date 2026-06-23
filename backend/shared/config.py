@@ -59,6 +59,8 @@ class Settings:
     LITELLM_PROXY_BASE: str = os.getenv("LITELLM_PROXY_BASE", "http://localhost:4000")
     LITELLM_API_KEY: str = os.getenv("LITELLM_API_KEY", "")
     AGENT_ORCHESTRATOR_MODEL: str = os.getenv("AGENT_ORCHESTRATOR_MODEL", "llama3.1")
+    # Per-session JSONL trace of pi-agent tool calls + decision reasoning
+    AGENT_LOG_DIR: Path = _path(os.getenv("AGENT_LOG_DIR"), "data/logs/agent")
 
     SAM2_PATH: str = os.getenv("SAM2_PATH", "")
     DEFAULT_GROUNDING_MODE: str = os.getenv("DEFAULT_GROUNDING_MODE", "")
@@ -66,6 +68,11 @@ class Settings:
     # Knowledge Base (RAG)
     KB_DIR: Path = _path(os.getenv("KB_DIR"), "data/kb")
     KB_QDRANT_PATH: Path = _path(os.getenv("KB_QDRANT_PATH"), "data/kb/qdrant")
+    # Below this dense-cosine score a match is treated as too weak to cite (avoids
+    # confidently showing a wrong page). Real drills query with the VLM's verbose
+    # image description, which scores ~0.6-0.7 against the manual, so 0.6 lets genuine
+    # drills cite while still suppressing near-empty matches. Tune via env if needed.
+    KB_MIN_SCORE: float = float(os.getenv("KB_MIN_SCORE", "0.6"))
 
     STAGE: int = 5
 
