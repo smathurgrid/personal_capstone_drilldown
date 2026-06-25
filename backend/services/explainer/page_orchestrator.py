@@ -338,6 +338,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
         metadata: dict,
         input_prompt: str,
         raw_json: str,
+        drill_mode: str = "inside",
     ) -> dict:
         result_metadata = build_result_metadata(
             drill_topic,
@@ -353,6 +354,7 @@ class PageOrchestrator(ExplainerPageWorkflow):
                 "click": {"x": x, "y": y},
                 "visionModel": vision_model,
                 "groundingMode": grounding_mode,
+                "drillMode": drill_mode,
                 "depth": self._parent_depth(parent_id) + 1,
             }
         )

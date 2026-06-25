@@ -38,23 +38,43 @@ async def generate_drill_image_to_file(
 
     if drill_mode == "pov":
         enhanced_prompt = (
-            f"A realistic first-person point-of-view (POV) perspective photograph looking OUTWARD from the clicked object. "
-            f"The immediate foreground or framing of the image should subtly show parts of the clicked object or its immediate housing/structure to establish the perspective. "
-            f"View details: {drill_topic}."
+            f"An absolute masterpiece, hyper-realistic, photorealistic first-person point-of-view (POV) photograph "
+            f"shot on a premium full-frame Hasselblad camera with an ultra-wide 18mm prime lens at f/2.8, rendering "
+            f"in clean, pristine, native 8k resolution. The camera is physically anchored exactly at the coordinates of the "
+            f"clicked component, peering OUTWARD into the surrounding room and space.\n"
+            f"Spatial Composition & Framing: The frame utilizes a wide 180-degree field of view with cinematic proportions. "
+            f"The immediate, extreme close-up foreground edges catch the out-of-focus physical structure and framing outline of "
+            f"the clicked object (rendering it in a beautiful, soft, out-of-focus bokeh blur), anchoring the camera's spatial presence "
+            f"and providing an intense sense of physical scale.\n"
+            f"Detailed Environment & Scenery: {drill_topic.strip()}\n"
+            f"Cinematic Lighting & Atmosphere: Dramatic volumetric lighting, realistic ambient occlusion, and natural light bounces. "
+            f"Rich, balanced color grading with deep shadows, clean balanced highlights, and cinematic color contrast matching a movie still.\n"
+            f"Camera Settings: 1/125s shutter speed, ISO 100, award-winning architectural and technical photography style, completely free of any CGI, digital illustration, text, labels, or rendering look."
         )
         if style_desc:
             enhanced_prompt += (
-                f" CRITICAL: To maintain perfect visual continuity, the image MUST use the exact same color palette, "
-                f"texture design, materials, and overall aesthetic described here: {style_desc.strip()}."
+                f"\nVisual Continuity Profile: To preserve perfect aesthetic alignment and visual continuity, the image MUST "
+                f"strictly incorporate the following visual style, colors, materials, and atmosphere: {style_desc.strip()}."
             )
     else:
         enhanced_prompt = drill_topic
 
-    result = await image_generator.generate(
-        prompt=enhanced_prompt,
-        local_crop_b64=local_b64,
-        global_b64=global_b64,
-    )
+    if drill_mode == "pov":
+        # For POV mode, we are looking outward from the object's perspective.
+        # Passing the cropped object as an input image constraint is fundamentally incorrect and actively ruins the generation,
+        # because it forces the outward-looking scene to visually look like the cropped object (due to img2img constraints).
+        # Therefore, we pass None to ensure FLUX does pure text-to-image generation based strictly on our rich, detailed POV prompt.
+        result = await image_generator.generate(
+            prompt=enhanced_prompt,
+            local_crop_b64=None,
+            global_b64=None,
+        )
+    else:
+        result = await image_generator.generate(
+            prompt=enhanced_prompt,
+            local_crop_b64=local_b64,
+            global_b64=global_b64,
+        )
     return b64_to_file(result["image_b64"], output_path)
 
 

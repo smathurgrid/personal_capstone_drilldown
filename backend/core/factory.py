@@ -11,7 +11,7 @@ from backend.services.explainer.drill_analyzer import DrillAnalyzer
 from backend.services.explainer.drill_context_resolver import DrillContextResolver
 from backend.services.explainer.grounding_service import GroundingService
 from backend.services.explainer.page_orchestrator import PageOrchestrator
-from backend.services.explainer.image_generator import MockImageGenerator, OllamaImageGenerator
+from backend.services.explainer.image_generator import MockImageGenerator, OllamaImageGenerator, PollinationsImageGenerator, FalImageGenerator, HuggingFaceImageGenerator
 from backend.shared.config import Settings, settings
 
 
@@ -33,10 +33,16 @@ class ServiceFactory:
         self._explainer_page_orchestrator: PageOrchestrator | None = None
         self._ecommerce_catalog: EcommerceCatalogService | None = None
 
-    def create_image_generator(self) -> MockImageGenerator | OllamaImageGenerator:
+    def create_image_generator(self):
         if self._image_generator is None:
             if self._settings.MODEL_PROVIDER == "mock":
                 self._image_generator = MockImageGenerator()
+            elif self._settings.MODEL_PROVIDER == "pollinations":
+                self._image_generator = PollinationsImageGenerator()
+            elif self._settings.MODEL_PROVIDER == "fal":
+                self._image_generator = FalImageGenerator()
+            elif self._settings.MODEL_PROVIDER == "huggingface":
+                self._image_generator = HuggingFaceImageGenerator()
             else:
                 self._image_generator = OllamaImageGenerator()
         return self._image_generator

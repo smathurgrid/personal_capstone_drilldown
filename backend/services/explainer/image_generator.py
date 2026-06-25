@@ -40,6 +40,14 @@ class OllamaImageGenerator:
             return {"image_b64": data["image"]}
         if data.get("images"):
             return {"image_b64": data["images"][0]}
+        
+        # Robust fallback for Ollama text-to-image experimental API (where base64 is in the response field)
+        response_val = data.get("response", "")
+        if response_val and isinstance(response_val, str):
+            stripped = response_val.strip()
+            if len(stripped) > 5000 and " " not in stripped and "\n" not in stripped:
+                return {"image_b64": stripped}
+
         preview = str(data.get("response", ""))[:300]
         raise ValueError(f"Model returned no image. Response preview: {preview}")
 
@@ -63,6 +71,103 @@ class MockImageGenerator:
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return {"image_b64": base64.b64encode(buf.getvalue()).decode()}
+
+
+class PollinationsImageGenerator:
+    async def generate(
+        self, prompt: str, local_crop_b64: str | None, global_b64: str | None
+    ) -> dict[str, Any]:
+        import urllib.parse
+        del local_crop_b64, global_b64
+        
+        # Sanitize prompt of slashes to prevent CDN/CDN path resolution 404 errors
+        safe_prompt = prompt.replace("/", " ").replace("\\", " ")
+        # Truncate prompt to 1500 chars to avoid URL length-limit errors
+        if len(safe_prompt) > 1500:
+            safe_prompt = safe_prompt[:1500].rsplit(",", 1)[0]
+            
+        encoded = urllib.parse.quote(safe_prompt)
+        url = f"https://image.pollinations.ai/prompt/{encoded}?model=flux&width=1024&height=1024&nologo=true"
+        resp = requests.get(url, timeout=120)
+        resp.raise_for_status()
+        b64_str = base64.b64encode(resp.content).decode("utf-8")
+        return {"image_b64": b64_str}
+
+
+class FalImageGenerator:
+    async def generate(
+        self, prompt: str, local_crop_b64: str | None, global_b64: str | None
+    ) -> dict[str, Any]:
+        del local_crop_b64, global_b64
+        
+        url = "https://fal.run/fal-ai/flux-lora"
+        headers = {
+            "Authorization": f"Key {settings.FAL_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        final_prompt = prompt
+        loras = []
+        if "first-person" in prompt or "POV" in prompt or "point-of-view" in prompt:
+            if "PVSHTS_PPLSNSM" not in prompt:
+                final_prompt = f"PVSHTS_PPLSNSM first person POV shot of {prompt}"
+            
+            loras.append({
+                "path": settings.POV_LORA_PATH,
+                "scale": 0.9
+            })
+            
+        payload = {
+            "prompt": final_prompt,
+            "image_size": "square_hd",
+            "num_inference_steps": 28,
+            "guidance_scale": 3.5,
+            "sync_mode": True
+        }
+        if loras:
+            payload["loras"] = loras
+            
+        resp = requests.post(url, headers=headers, json=payload, timeout=180)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        images = data.get("images", [])
+        if not images:
+            raise ValueError(f"Fal.ai returned no images. Response: {data}")
+            
+        image_url = images[0]["url"]
+        
+        img_resp = requests.get(image_url, timeout=60)
+        img_resp.raise_for_status()
+        b64_str = base64.b64encode(img_resp.content).decode("utf-8")
+        return {"image_b64": b64_str}
+
+
+class HuggingFaceImageGenerator:
+    async def generate(
+        self, prompt: str, local_crop_b64: str | None, global_b64: str | None
+    ) -> dict[str, Any]:
+        del local_crop_b64, global_b64
+        
+        # Use Hugging Face's active 2026 Router endpoint and the free, ultra-fast FLUX.1-schnell model
+        url = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
+        headers = {
+            "Authorization": f"Bearer {settings.HF_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        
+        # Sanitize prompt of slashes to prevent HTTP/CDN formatting issues
+        safe_prompt = prompt.replace("/", " ").replace("\\", " ")
+        
+        payload = {
+            "inputs": safe_prompt,
+        }
+        
+        resp = requests.post(url, headers=headers, json=payload, timeout=180)
+        resp.raise_for_status()
+        
+        b64_str = base64.b64encode(resp.content).decode("utf-8")
+        return {"image_b64": b64_str}
 
 
 async def generate_topic_image(
@@ -89,18 +194,7 @@ Respond with ONLY the image generation prompt, nothing else."""
             temperature=0.3,
             timeout=120,
         ).strip()
-        gen_payload = {
-            "model": settings.IMAGE_MODEL,
-            "prompt": image_prompt,
-            "stream": False,
-        }
-        r = requests.post(f"{settings.OLLAMA_BASE}/api/generate", json=gen_payload, timeout=300)
-        r.raise_for_status()
-        data = r.json()
-        image_b64 = data.get("image") or (data.get("images") or [None])[0]
-        if not image_b64:
-            raise ValueError("Model returned no image for generate-from-text")
-        result = {"image_b64": image_b64}
+        result = await image_generator.generate(image_prompt, None, None)
 
     return {"image_b64": result["image_b64"], "image_prompt": image_prompt}
 

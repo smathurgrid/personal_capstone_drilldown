@@ -9,13 +9,13 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "frontend": "vite --host 127.0.0.1",
-    "backend": "python3 -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload",
+    "backend": "python3 -c \"import uvicorn; from backend.shared.config import settings; uvicorn.run('backend.app.main:app', host='127.0.0.1', port=settings.API_PORT, reload=True)\"",
     "build": "tsc && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "npm run test:backend && npm run test:frontend",
     "test:backend": "python3 -m pytest",
     "test:frontend": "vitest run",
-    "health": "curl -s http://127.0.0.1:8000/api/health | python3 -m json.tool",
+    "health": "python3 -c \"import urllib.request; from backend.shared.config import settings; print(urllib.request.urlopen(f'http://127.0.0.1:{settings.API_PORT}/api/health').read().decode())\" | python3 -m json.tool",
     "smoke": "bash scripts/smoke_test.sh",
     "ingest": "python3 scripts/ingest_fashion_dataset.py"
   },

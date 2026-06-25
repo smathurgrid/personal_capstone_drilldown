@@ -42,3 +42,28 @@ def test_drill_analyzer_pov_prompt_building():
     prompt = analyzer._build_prompt(drill_mode="pov")
     assert "first-person" in prompt
     assert "OUTWARDS" in prompt
+
+
+def test_drill_analyzer_max_tokens_routing():
+    from unittest.mock import MagicMock
+    import base64
+    import asyncio
+    from backend.shared.config import settings
+    from backend.services.explainer.drill_analyzer import DrillAnalyzer
+
+    analyzer = DrillAnalyzer(settings)
+    analyzer._run_dual_image_vlm = MagicMock(return_value="ANALYSIS:\ntest analysis\nIMAGE_PROMPT:\ntest image prompt")
+    analyzer._describe_style_reference = MagicMock(return_value="test_style")
+
+    dummy_b64 = base64.b64encode(b"dummy_data").decode("utf-8")
+
+    # Verify POV mode routes 800 tokens
+    asyncio.run(analyzer.analyze_drill(dummy_b64, dummy_b64, drill_mode="pov"))
+    analyzer._run_dual_image_vlm.assert_called_once()
+    assert analyzer._run_dual_image_vlm.call_args[1]["max_tokens"] == 800
+
+    # Verify inside mode routes 350 tokens
+    analyzer._run_dual_image_vlm.reset_mock()
+    asyncio.run(analyzer.analyze_drill(dummy_b64, dummy_b64, drill_mode="inside"))
+    analyzer._run_dual_image_vlm.assert_called_once()
+    assert analyzer._run_dual_image_vlm.call_args[1]["max_tokens"] == 350

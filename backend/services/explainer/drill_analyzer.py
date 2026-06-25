@@ -31,14 +31,22 @@ ANALYSIS:
 IMAGE_PROMPT:
 <your generation prompt>"""
 
-_TWO_TASK_POV_PROMPT = """You are an expert cinematic photographer analyzing a drill-down selection.
+_TWO_TASK_POV_PROMPT = """You are an expert cinematic photographer and scene designer analyzing a drill-down selection.
 
 You receive TWO images:
 1. Full scene with a red circle marking WHERE the user clicked (global context).
 2. Cropped close-up of the region under the click (local detail).
 
-TASK 1 — ANALYSIS: Describe what was clicked, its location, and what its surrounding environment would look like looking outwards from exactly that coordinate.
-TASK 2 — IMAGE PROMPT: Write a detailed prompt for an image generation model to illustrate a first-person point-of-view (POV) perspective looking OUTWARDS from exactly this component's physical coordinates towards its surrounding room, overall environment, or scenery. No text, labels, or annotations in the generated image.
+TASK 1 — ANALYSIS: Describe what was clicked, its precise physical location, and what the surrounding environment, room, or landscape would look like when looking OUTWARDS from exactly those coordinates. Be vivid, descriptive, and physically accurate.
+
+TASK 2 — IMAGE PROMPT: Write an exceptionally long, hyper-detailed, and descriptive prompt (150-250 words) written in a prose style for a state-of-the-art image generator (like FLUX) to illustrate a first-person point-of-view (POV) perspective looking OUTWARDS from exactly this component's physical coordinates. 
+The prompt MUST specify:
+- SPATIAL GEOMETRY & COMPOSITION: Describe the wide 180-degree outward view from the clicked component. Specify what is immediately nearby (midground) and what is far away in the distance (background) to create massive depth.
+- CRITICAL POV CAMERA ANCHORING RULE (PREVENT SUBJECT-CAMERA CONFUSION): Since the virtual camera is physically positioned ON or INSIDE the clicked component and looking OUTWARD, the clicked component itself MUST NOT be visible in the middle or background of the scene. For example, if you clicked on the 'Eiffel Tower', do NOT generate an image of the Eiffel Tower standing in front of you; instead, generate the sprawling panoramic Paris skyline and the Seine River seen *from* the tower's observation deck. If you clicked on a 'telescope lens', describe the night sky or distant stars as seen looking through the lens. The clicked component may only be visible as an extreme close-up framing element or soft out-of-focus bokeh blur along the very edges/borders of the frame to anchor the first-person perspective.
+- TACTILE TEXTURES & MATERIALS: Describe every visible surface in exquisite, microscopic detail (e.g., oxidized copper, polished cherry wood with fine grain, matte carbon fiber, brushed stainless steel with micro-abrasions, dusty textured plaster, velvet fabric with delicate stitching).
+- CINEMATIC LIGHTING & ATMOSPHERE: Describe how light behaves in the space (e.g., warm golden sunlight filtering through high windows casting long dramatic shadows and illuminating floating dust motes; cool neon ambient light reflecting off wet concrete; soft volumetric fog; realistic ray-traced ambient occlusion).
+- COLOR PALETTE & MOOD: Specify the exact color grading, temperature, and atmospheric mood (e.g., cozy, futuristic, sterile, rustic, industrial).
+- CRITICAL: No text, words, letters, labels, or annotations of any kind should be in the image.
 
 Respond in exactly this format:
 ANALYSIS:
@@ -142,14 +150,14 @@ class DrillAnalyzer:
             logger.warning("Failed to generate style reference description: %s", exc)
             return ""
 
-    def _run_dual_image_vlm(self, global_b64: str, local_b64: str, prompt: str) -> str:
+    def _run_dual_image_vlm(self, global_b64: str, local_b64: str, prompt: str, max_tokens: int = 350) -> str:
         return self._llm.chat_completion(
             self._vision_model,
             prompt,
             images=[global_b64, local_b64],
             temperature=0.1,
             timeout=300,
-            num_predict=350,
+            num_predict=max_tokens,
         )
 
     async def analyze_drill(
@@ -179,7 +187,8 @@ class DrillAnalyzer:
                 resized_global = global_b64
                 resized_local = local_b64
 
-            raw = self._run_dual_image_vlm(resized_global, resized_local, prompt)
+            max_tokens = 800 if drill_mode == "pov" else 350
+            raw = self._run_dual_image_vlm(resized_global, resized_local, prompt, max_tokens=max_tokens)
             style_desc = ""
             if drill_mode == "pov":
                 style_desc = self._describe_style_reference(resized_local)

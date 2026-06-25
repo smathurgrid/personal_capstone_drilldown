@@ -12,7 +12,7 @@ except ImportError:
 APP_ROOT = Path(__file__).resolve().parents[2]
 
 if load_dotenv:
-    load_dotenv(APP_ROOT / ".env")
+    load_dotenv(APP_ROOT / ".env", override=True)
 
 # Back-compat alias used by a few modules
 UNIFIED_ROOT = APP_ROOT
@@ -51,10 +51,16 @@ class Settings:
     )
 
     # Explainer generation (Sid — Stage 2)
-    OLLAMA_BASE: str = os.getenv("OLLAMA_BASE", "http://localhost:11434")
-    IMAGE_MODEL: str = os.getenv("IMAGE_MODEL", "x/flux2-klein:4b-bf16")
+    OLLAMA_BASE: str = os.getenv("OLLAMA_BASE", "http://127.0.0.1:11434")
+    IMAGE_MODEL: str = os.getenv("IMAGE_MODEL", "x/flux2-klein:9b")
     VISION_MODEL: str = os.getenv("VISION_MODEL", "qwen2.5vl:7b")
     MODEL_PROVIDER: str = os.getenv("MODEL_PROVIDER", "ollama").lower()
+    FAL_KEY: str = os.getenv("FAL_KEY", "")
+    HF_TOKEN: str = os.getenv("HF_TOKEN", "")
+    POV_LORA_PATH: str = os.getenv(
+        "POV_LORA_PATH",
+        "https://huggingface.co/glif-loradex-trainer/i12bp8_i12bp8_povshots_v1/resolve/main/povshots_v1.safetensors",
+    )
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama").lower()
     LITELLM_PROXY_BASE: str = os.getenv("LITELLM_PROXY_BASE", "http://localhost:4000")
     LITELLM_API_KEY: str = os.getenv("LITELLM_API_KEY", "")

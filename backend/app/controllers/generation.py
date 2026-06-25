@@ -20,10 +20,11 @@ def _ollama_reachable() -> bool:
 
 def get_generation_module_status() -> dict:
     ollama_ok = _ollama_reachable()
+    provider_ready = ollama_ok or settings.MODEL_PROVIDER in ("mock", "huggingface", "pollinations")
     return {
         "module": "explainer-generation",
         "stage": settings.STAGE,
-        "ready": ollama_ok or settings.MODEL_PROVIDER == "mock",
+        "ready": provider_ready,
         "source": "explainer-generation",
         "provider": settings.MODEL_PROVIDER,
         "checks": {
