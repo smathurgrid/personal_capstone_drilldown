@@ -1,0 +1,128 @@
+version: '3.8'
+
+services:
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: drilldown-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - drilldown-network
+
+  # PostgreSQL database (optional - can use SQLite instead)
+  postgres:
+    image: postgres:15-alpine
+    container_name: drilldown-postgres
+    environment:
+      POSTGRES_USER: drilldown
+      POSTGRES_PASSWORD: drilldown_password
+      POSTGRES_DB: drilldown
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drilldown"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - drilldown-network
+
+  # Qdrant vector database for ecommerce mode
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: drilldown-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - drilldown-network
+
+  # Ollama for LLM and vision models (explainer mode)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: drilldown-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - drilldown-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Main DrillDown application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: drilldown-app
+    ports:
+      - "8001:8001"
+    volumes:
+      # Mount .env file
+      - ./.env:/app/.env:ro
+      # Mount data directories for persistence
+      - ./data:/app/data
+      # Optional: Mount dataset if you have it locally
+      - ./data/fashion-dataset:/app/data/fashion-dataset
+    environment:
+      # Override with Docker service names
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://drilldown:drilldown_password@postgres:5432/drilldown
+      - OLLAMA_BASE=http://ollama:11434
+      - QDRANT_PATH=./data/qdrant_storage
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - drilldown-network
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  postgres_data:
+  qdrant_data:
+  ollama_data:
+
+networks:
+  drilldown-network:
+    driver: bridge
