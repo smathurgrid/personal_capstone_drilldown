@@ -38,7 +38,8 @@ class LLMClient:
 
     def __init__(self, app_settings: Settings | None = None) -> None:
         self._settings = app_settings or settings
-        self._ollama_api = self._settings.OLLAMA_BASE.rstrip("/") + "/api"
+        # VLM/chat runs on the MAIN Mac; image gen is offloaded to worker Macs.
+        self._ollama_api = self._settings.VLM_OLLAMA_BASE.rstrip("/") + "/api"
 
     @property
     def provider(self) -> str:
@@ -84,7 +85,7 @@ class LLMClient:
             "timeout": timeout,
         }
         if litellm_model.startswith("ollama/"):
-            kwargs["api_base"] = self._settings.OLLAMA_BASE.rstrip("/")
+            kwargs["api_base"] = self._settings.VLM_OLLAMA_BASE.rstrip("/")
 
         logger.debug("LiteLLM completion model=%s images=%s", litellm_model, len(images or []))
         response = litellm.completion(**kwargs)
@@ -119,7 +120,7 @@ class LLMClient:
         """Base URL for OpenAI-style clients (e.g. pi-agent-core)."""
         if self.provider == "litellm" and self._settings.LITELLM_PROXY_BASE:
             return self._settings.LITELLM_PROXY_BASE.rstrip("/") + "/v1/"
-        return self._settings.OLLAMA_BASE.rstrip("/") + "/v1/"
+        return self._settings.VLM_OLLAMA_BASE.rstrip("/") + "/v1/"
 
     def orchestrator_model_id(self) -> str:
         """Model id sent to OpenAI-compatible agent endpoints."""

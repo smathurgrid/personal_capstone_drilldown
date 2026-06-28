@@ -56,6 +56,8 @@ data/qdrant_storage/*
 data/ecommerce/uploads/*
 data/ecommerce/debug/*
 data/explainer/static/*
+# Speculative-drill SQLite session store (runtime data — images stored as BLOBs)
+data/explainer/*.db
 !data/**/.gitkeep
 !data/fashion-dataset/README.md
 

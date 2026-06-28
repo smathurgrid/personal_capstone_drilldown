@@ -44,6 +44,39 @@ def crop_norm_region(image_path: str, x: float, y: float, radius_ratio: float = 
         return pil_to_b64(crop)
 
 
+def crop_bbox_b64(
+    image_bytes: bytes,
+    bbox: tuple[float, float, float, float],
+    pad_ratio: float = 0.08,
+) -> str:
+    """Crop a normalized bbox [x0,y0,x1,y1] from image bytes; returns base64 PNG.
+
+    Used at dispatch time to give Flux a visual anchor for each hotspot without any
+    extra VLM call (Approach 2: the bbox already came from the single prediction pass).
+    A small pad is added so the crop keeps a little surrounding context.
+    """
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        img = img.convert("RGB")
+        w, h = img.size
+        x0, y0, x1, y1 = bbox
+        # Normalize ordering and clamp to [0,1].
+        x0, x1 = sorted((max(0.0, min(1.0, x0)), max(0.0, min(1.0, x1))))
+        y0, y1 = sorted((max(0.0, min(1.0, y0)), max(0.0, min(1.0, y1))))
+        pad_x = (x1 - x0) * pad_ratio
+        pad_y = (y1 - y0) * pad_ratio
+        px0 = int(max(0.0, x0 - pad_x) * w)
+        py0 = int(max(0.0, y0 - pad_y) * h)
+        px1 = int(min(1.0, x1 + pad_x) * w)
+        py1 = int(min(1.0, y1 + pad_y) * h)
+        # Guard against a degenerate (zero-area) box.
+        if px1 - px0 < 8:
+            px0, px1 = max(0, px0 - 8), min(w, px1 + 8)
+        if py1 - py0 < 8:
+            py0, py1 = max(0, py0 - 8), min(h, py1 + 8)
+        crop = img.crop((px0, py0, px1, py1))
+        return pil_to_b64(crop)
+
+
 def prepare_drill_surfaces(
     image_bytes: bytes,
     x_px: int,

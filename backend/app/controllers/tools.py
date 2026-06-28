@@ -90,6 +90,50 @@ async def handle_pick_next_region(body: dict) -> dict:
     return await _region_picker().pick_next_region(image_bytes)
 
 
+async def handle_pick_top_regions(body: dict) -> dict:
+    """Speculative step 1: VLM ranks the top-N drill regions in one call."""
+    image_b64 = body.get("image_b64") or body.get("parent_image_b64")
+    if not image_b64:
+        raise HTTPException(status_code=400, detail="image_b64 required")
+    n = int(body.get("n", 5))
+    image_bytes = base64.b64decode(image_b64)
+    regions = await _region_picker().pick_top_regions(image_bytes, n=n)
+    return {"regions": regions}
+
+
+async def handle_predict_hotspots(body: dict) -> dict:
+    """Approach 2: one VLM pass → N enriched hotspots (label, x, y, bbox, gen_prompt)."""
+    image_b64 = body.get("image_b64") or body.get("parent_image_b64")
+    if not image_b64:
+        raise HTTPException(status_code=400, detail="image_b64 required")
+    n = int(body.get("n", 5))
+    image_bytes = base64.b64decode(image_b64)
+    regions = await _region_picker().predict_hotspots(image_bytes, n=n)
+    return {"regions": regions}
+
+
+async def handle_predict_child_hotspots(body: dict) -> dict:
+    """Overlapped flow: predict the child's hotspots from its PROMPT (no child image yet)."""
+    child_prompt = str(body.get("child_prompt", ""))
+    parent_crop_b64 = body.get("parent_crop_b64")
+    n = int(body.get("n", 5))
+    hotspots = await _region_picker().predict_child_hotspots(
+        child_prompt, parent_crop_b64=parent_crop_b64, n=n
+    )
+    return {"hotspots": hotspots}
+
+
+async def handle_locate_hotspots(body: dict) -> dict:
+    """Overlapped flow: find the predicted labels on the finished child image."""
+    image_b64 = body.get("image_b64")
+    labels = body.get("labels") or []
+    if not image_b64:
+        raise HTTPException(status_code=400, detail="image_b64 required")
+    image_bytes = base64.b64decode(image_b64)
+    located = await _region_picker().locate_hotspots(image_bytes, list(labels))
+    return {"located": located}
+
+
 async def handle_generate(body: dict, image_generator: ImageGenerator) -> dict:
     """F5: JSON generate — same contract as explainer generate."""
     prompt = body.get("prompt", "")

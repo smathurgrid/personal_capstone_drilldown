@@ -1,6 +1,6 @@
 /** Cross-stack API contracts shared by frontend (and documented for backend). */
 
-export type AppMode = "ecommerce" | "explainer";
+export type AppMode = "ecommerce" | "explainer" | "speculative";
 
 export interface ModuleHealth {
   status: string;

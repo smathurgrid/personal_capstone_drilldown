@@ -6,7 +6,9 @@ const DEFAULT_MODE: AppMode =
 
 function parseModeFromHash(): AppMode {
   const segment = window.location.hash.replace(/^#\/?/, "").split("?")[0];
-  return segment === "ecommerce" || segment === "explainer" ? segment : DEFAULT_MODE;
+  return segment === "ecommerce" || segment === "explainer" || segment === "speculative"
+    ? segment
+    : DEFAULT_MODE;
 }
 
 export function useHashMode() {

@@ -2,6 +2,7 @@
 
 from backend.repositories.history_repository import HistoryRepository
 from backend.repositories.page_repository import PageRepository
+from backend.repositories.session_repository import SessionRepository
 from backend.services.ecommerce.catalog_service import EcommerceCatalogService
 from backend.services.ecommerce.drill_coordinator import DrillCoordinator
 from backend.services.ecommerce.identification_service import IdentificationService
@@ -11,7 +12,12 @@ from backend.services.explainer.drill_analyzer import DrillAnalyzer
 from backend.services.explainer.drill_context_resolver import DrillContextResolver
 from backend.services.explainer.grounding_service import GroundingService
 from backend.services.explainer.page_orchestrator import PageOrchestrator
-from backend.services.explainer.image_generator import MockImageGenerator, OllamaImageGenerator
+from backend.services.explainer.image_generator import (
+    MockImageGenerator,
+    OllamaImageGenerator,
+    RemoteFluxImageGenerator,
+)
+from backend.services.explainer.image_worker_pool import PooledImageGenerator
 from backend.shared.config import Settings, settings
 
 
@@ -26,6 +32,7 @@ class ServiceFactory:
         self._drill_coordinator: DrillCoordinator | None = None
         self._drill_history: HistoryRepository | None = None
         self._explainer_page_store: PageRepository | None = None
+        self._drill_session_store: SessionRepository | None = None
         self._explainer_context_analyzer: ContextAnalyzer | None = None
         self._explainer_drill_analyzer: DrillAnalyzer | None = None
         self._explainer_grounding: GroundingService | None = None
@@ -33,13 +40,35 @@ class ServiceFactory:
         self._explainer_page_orchestrator: PageOrchestrator | None = None
         self._ecommerce_catalog: EcommerceCatalogService | None = None
 
-    def create_image_generator(self) -> MockImageGenerator | OllamaImageGenerator:
+    def create_image_generator(
+        self,
+    ) -> (
+        MockImageGenerator
+        | OllamaImageGenerator
+        | RemoteFluxImageGenerator
+        | PooledImageGenerator
+    ):
         if self._image_generator is None:
-            if self._settings.MODEL_PROVIDER == "mock":
+            backend = self._settings.IMAGE_BACKEND
+            if backend == "mock":
                 self._image_generator = MockImageGenerator()
+            elif backend == "remote":
+                self._image_generator = RemoteFluxImageGenerator()
+            elif backend == "pool" or len(self._settings.IMAGE_OLLAMA_BASES) > 1:
+                # Distribute the speculative fan-out across multiple worker Macs.
+                self._image_generator = PooledImageGenerator(
+                    self._settings.IMAGE_OLLAMA_BASES
+                )
             else:
                 self._image_generator = OllamaImageGenerator()
         return self._image_generator
+
+    def create_main_image_generator(self):
+        """Generator pinned to the MAIN Mac — renders the one-off parent/overview
+        image locally so the worker pool stays dedicated to hotspot prefetch."""
+        if self._settings.IMAGE_BACKEND == "mock":
+            return self.create_image_generator()
+        return OllamaImageGenerator(self._settings.MAIN_IMAGE_BASE)
 
     def create_identification_service(self) -> IdentificationService:
         if self._product_identification is None:
@@ -70,6 +99,11 @@ class ServiceFactory:
                 self._settings.EXPLAINER_STATIC_DIR
             )
         return self._explainer_page_store
+
+    def create_drill_session_store(self) -> SessionRepository:
+        if self._drill_session_store is None:
+            self._drill_session_store = SessionRepository(self._settings.DRILL_SESSIONS_DB)
+        return self._drill_session_store
 
     def create_explainer_context_analyzer(self) -> ContextAnalyzer:
         if self._explainer_context_analyzer is None:

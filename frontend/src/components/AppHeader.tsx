@@ -1,4 +1,4 @@
-import { Circle, RefreshCw, ShoppingBag, Sparkles } from "lucide-react";
+import { Circle, RefreshCw, ShoppingBag, Sparkles, Zap } from "lucide-react";
 import type { AppMode } from "@shared/types";
 
 type AppHeaderProps = {
@@ -28,7 +28,7 @@ export default function AppHeader({
         <Sparkles size={22} />
         <div>
           <h1>DrillDown</h1>
-          <span className="brand-sub">Unified · Complete</span>
+          <span className="brand-sub">Visual Intelligence Platform</span>
         </div>
       </div>
 
@@ -48,6 +48,14 @@ export default function AppHeader({
         >
           <Sparkles size={16} />
           Explainer
+        </button>
+        <button
+          type="button"
+          className={mode === "speculative" ? "active" : ""}
+          onClick={() => onSwitchMode("speculative")}
+        >
+          <Zap size={16} />
+          Speculative
         </button>
       </nav>
 

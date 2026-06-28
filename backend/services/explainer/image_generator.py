@@ -1,11 +1,13 @@
 """Explainer image generation via Ollama or mock provider."""
 
+import asyncio
 import base64
 import io
 import logging
 import textwrap
 from typing import Any
 
+import httpx
 import requests
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -16,9 +18,88 @@ from backend.shared.llm_client import get_llm_client
 logger = logging.getLogger(__name__)
 
 
-class OllamaImageGenerator:
+def _extract_image_b64(data: dict[str, Any]) -> str:
+    """Pull the base64 image out of an Ollama /api/generate response."""
+    if data.get("image"):
+        return data["image"]
+    if data.get("images"):
+        return data["images"][0]
+    preview = str(data.get("response", ""))[:300]
+    raise ValueError(f"Model returned no image. Response preview: {preview}")
+
+
+async def ollama_generate_image(
+    prompt: str,
+    *,
+    base_url: str,
+    model: str,
+    images: list[str] | None = None,
+    timeout: int | None = None,
+) -> str:
+    """POST one image-generation job to a specific Ollama endpoint (async).
+
+    Used by the worker pool to target individual Mac endpoints concurrently
+    without blocking the event loop (unlike the legacy requests.post path).
+    """
+    payload: dict[str, Any] = {"model": model, "prompt": prompt, "stream": False}
+    if images:
+        payload["images"] = images
+    url = f"{base_url.rstrip('/')}/api/generate"
+    # trust_env=False -> ignore HTTP_PROXY/HTTPS_PROXY env vars. Worker Macs are on
+    # the LAN and must be reached DIRECTLY; a campus proxy would black-hole them.
+    # local_address (BIND_LAN_IP) -> force the socket out the LAN interface so a
+    # corporate VPN tunnel doesn't swallow the connection.
+    transport = (
+        httpx.AsyncHTTPTransport(local_address=settings.BIND_LAN_IP)
+        if settings.BIND_LAN_IP
+        else None
+    )
+    async with httpx.AsyncClient(
+        timeout=timeout or settings.IMAGE_GEN_TIMEOUT,
+        trust_env=False,
+        transport=transport,
+        headers={"ngrok-skip-browser-warning": "true"},  # bypass ngrok interstitial
+    ) as client:
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+        return _extract_image_b64(resp.json())
+
+
+class RemoteFluxImageGenerator:
+    """Distributed inference client — sends prompts to the Mac 2 Flux worker.
+
+    Conforms to the ImageGenerator protocol so it drops into the factory seam with no
+    changes to call sites. Runs the blocking HTTP POST in a thread so it never stalls
+    the event loop (the engine dispatches several of these back-to-back).
+    """
+
     def __init__(self) -> None:
-        self.base_url = f"{settings.OLLAMA_BASE}/api/generate"
+        self.base_url = f"{settings.REMOTE_FLUX_BASE.rstrip('/')}/generate"
+
+    async def generate(
+        self, prompt: str, local_crop_b64: str | None, global_b64: str | None
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "prompt": prompt,
+            "local_crop_b64": local_crop_b64,
+            "global_b64": global_b64,
+        }
+
+        def _post() -> dict[str, Any]:
+            resp = requests.post(self.base_url, json=payload, timeout=300)
+            resp.raise_for_status()
+            return resp.json()
+
+        data = await asyncio.to_thread(_post)
+        if not data.get("image_b64"):
+            raise ValueError(f"Remote Flux worker returned no image_b64: {str(data)[:200]}")
+        return {"image_b64": data["image_b64"]}
+
+
+class OllamaImageGenerator:
+    def __init__(self, base_url: str | None = None) -> None:
+        base = base_url or settings.OLLAMA_BASE
+        self.base_url = f"{base.rstrip('/')}/api/generate"
         self.model = settings.IMAGE_MODEL
 
     async def generate(

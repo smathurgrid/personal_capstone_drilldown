@@ -1,5 +1,6 @@
 import EcommercePage from "./pages/EcommercePage";
 import ExplainerPage from "./pages/ExplainerPage";
+import SpeculativeDrillPage from "./pages/SpeculativeDrillPage";
 import AppHeader from "./components/AppHeader";
 import { useAppHealth } from "./hooks/useAppHealth";
 import { useHashMode } from "./hooks/useHashMode";
@@ -37,7 +38,13 @@ export default function App() {
       )}
 
       <main className="mode-viewport">
-        {mode === "ecommerce" ? <EcommercePage key="ecommerce" /> : <ExplainerPage key="explainer" />}
+        {mode === "ecommerce" ? (
+          <EcommercePage key="ecommerce" />
+        ) : mode === "speculative" ? (
+          <SpeculativeDrillPage key="speculative" />
+        ) : (
+          <ExplainerPage key="explainer" />
+        )}
       </main>
     </div>
   );
