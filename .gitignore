@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+env/
+
+
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.coverage/
+
+# Environment variables
+.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+.Python
+*.egg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Generated/temporary files
+graphify-out/
+repo_tree.txt
+docst/*
+temp-docs-pi/*
+
+# Docs build
+docs/_build/
+docs/.doctrees/
+
+docst/*
+
+# Data (keep directory structure via .gitkeep)
+data/qdrant_storage/*
+data/ecommerce/uploads/*
+data/ecommerce/debug/*
+data/explainer/static/*
+!data/**/.gitkeep
+!data/fashion-dataset/README.md

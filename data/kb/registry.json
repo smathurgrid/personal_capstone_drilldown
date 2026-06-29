@@ -1,0 +1,18 @@
+[
+  {
+    "id": "a942cbba4b145e1a",
+    "name": "IFB MACHINE.pdf",
+    "page_count": 22,
+    "status": "ready",
+    "created_at": "2026-06-23T06:23:27.844447+00:00",
+    "chunk_count": 288,
+    "figure_count": 38,
+    "ingest_stats": {
+      "chunk_count": 288,
+      "page_count": 22,
+      "figure_count": 38,
+      "page_fallback_count": 0,
+      "failed_figure_exports": 0
+    }
+  }
+]
